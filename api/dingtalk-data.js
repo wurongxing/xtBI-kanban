@@ -20,7 +20,7 @@ module.exports = async function handler(req, res) {
     res.status(500).json({
       error: "DINGTALK_SYNC_FAILED",
       message: error.message,
-      hint: "请检查 Vercel 环境变量、钉钉应用权限、workbookId、sheetId 和表头是否与模板一致。"
+      hint: "请检查 Vercel 环境变量、钉钉应用权限、operatorId、workbookId、sheetId 和表头是否与模板一致。"
     });
   }
 };
@@ -44,19 +44,31 @@ async function fetchAllSheets() {
 async function fetchSheetValues(sheetId) {
   const token = await getDingTalkAccessToken();
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
+  const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const range = encodeURIComponent(process.env.DINGTALK_RANGE || "A1:Z300");
   const template = process.env.DINGTALK_READ_URL_TEMPLATE ||
     "https://api.dingtalk.com/v1.0/doc/workbooks/{workbookId}/sheets/{sheetId}/ranges/{range}";
-  const url = template
+  const baseUrl = template
     .replace("{workbookId}", encodeURIComponent(workbookId))
     .replace("{sheetId}", encodeURIComponent(sheetId))
     .replace("{range}", range);
+  const url = appendQuery(baseUrl, { operatorId });
 
   const json = await requestJson(url, {
     method: "GET",
     headers: { "x-acs-dingtalk-access-token": token }
   }, `读取钉钉表格失败 sheetId=${sheetId}`);
   return extractMatrix(json);
+}
+
+function appendQuery(url, params) {
+  const parsed = new URL(url);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      parsed.searchParams.set(key, value);
+    }
+  }
+  return parsed.toString();
 }
 
 async function getDingTalkAccessToken() {
