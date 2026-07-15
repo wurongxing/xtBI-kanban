@@ -67,8 +67,10 @@ body::before {
 
 .brand {
   display: flex;
-  align-items: center;
-  padding: 10px 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 14px 12px;
   border-radius: 10px;
   background: rgba(3, 15, 30, 0.7);
 }
@@ -79,6 +81,16 @@ body::before {
   height: auto;
   max-height: 54px;
   object-fit: contain;
+}
+
+.brand-slogan {
+  display: block;
+  max-width: 280px;
+  color: rgba(233, 245, 255, 0.76);
+  font-size: 14px;
+  line-height: 1.25;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .title-block { text-align: center; }
@@ -134,7 +146,7 @@ button {
 .hero-grid { grid-template-columns: 1fr 430px; }
 .city-grid { grid-template-columns: 1fr 1fr 1fr; }
 .detail-grid { grid-template-columns: 2.2fr 1fr; }
-.okr-grid { grid-template-columns: 1fr 1fr 1fr; }
+.okr-grid { grid-template-columns: 1fr 1fr; }
 
 .panel {
   position: relative;
@@ -302,23 +314,149 @@ button {
 
 .okr-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   padding: 14px 16px 16px;
 }
 .okr-card {
-  min-height: 104px;
+  min-height: 246px;
   padding: 13px;
   border-radius: 8px;
   background: rgba(3, 21, 38, 0.82);
   border: 1px solid rgba(255,255,255,0.06);
 }
-.okr-card h3 { margin: 0 0 10px; font-size: 16px; color: var(--cyan); }
-.okr-card strong { font-size: 25px; color: var(--yellow); }
-.okr-card span { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.okr-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.okr-card h3 { margin: 0 0 5px; font-size: 16px; color: var(--cyan); }
+.okr-card-head strong { font-size: 25px; color: var(--yellow); line-height: 1; }
+.okr-owner { display: block; color: var(--muted); font-size: 12px; }
+.okr-objective {
+  min-height: 38px;
+  margin: 11px 0 10px;
+  color: #dcefff;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.okr-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.okr-values div {
+  padding: 8px;
+  border-radius: 7px;
+  background: rgba(7, 43, 78, 0.72);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.okr-values span { display: block; color: var(--muted); font-size: 11px; }
+.okr-values b { display: block; margin-top: 4px; color: var(--text); font-size: 16px; }
+.okr-progress {
+  height: 6px;
+  margin: 10px 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.08);
+}
+.okr-progress i {
+  display: block;
+  width: calc(var(--value) * 1%);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+}
+.okr-kr-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.okr-kr-list li {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 6px;
+  align-items: start;
+  color: #cfe2f5;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.okr-kr-list b { color: var(--yellow); font-size: 12px; }
+.okr-action {
+  margin: 10px 0 0;
+  color: #9fd6ff;
+  font-size: 12px;
+  line-height: 1.45;
+}
 
-.people-panel { min-height: 284px; }
-.people-list { padding: 12px 16px 16px; }
+.people-panel { grid-column: 1 / -1; min-height: 284px; }
+.people-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+.people-group {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(3, 21, 38, 0.82);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.people-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.people-group-head h3 { margin: 0; color: var(--cyan); font-size: 16px; }
+.people-group-head span { color: var(--muted); font-size: 12px; }
+.people-group-list { display: grid; gap: 8px; }
+.person-card {
+  padding: 10px;
+  border-radius: 7px;
+  background: rgba(7, 43, 78, 0.56);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.person-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+.person-card-top strong { display: block; color: var(--text); font-size: 14px; }
+.person-card-top span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.person-card p {
+  margin: 8px 0;
+  min-height: 34px;
+  color: #dcefff;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.person-values, .person-rates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.person-rates { margin-top: 6px; }
+.person-values span, .person-rates span {
+  padding: 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  background: rgba(0,0,0,0.16);
+}
+.person-values b, .person-rates b { display: block; margin-top: 3px; color: var(--text); font-size: 13px; }
+.person-card em {
+  display: block;
+  margin-top: 8px;
+  color: #9fd6ff;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+}
 .person-row {
   display: grid;
   grid-template-columns: 58px 1fr 82px 82px 58px;
@@ -407,13 +545,16 @@ dialog::backdrop { background: rgba(0,0,0,0.62); }
   .goal-pill, .brand { justify-self: stretch; }
   .mission { grid-template-columns: 1fr; gap: 18px; }
   .subline { flex-wrap: wrap; gap: 12px; }
+  .people-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
   .cockpit { width: calc(100vw - 18px); padding-top: 10px; }
   .filters { width: 100%; overflow-x: auto; }
   .title-block h1 { font-size: 28px; }
-  .mission-metrics, .city-stats, .city-bottom, .kr-detail-grid, .okr-cards { grid-template-columns: 1fr 1fr; }
+  .mission-metrics, .city-stats, .city-bottom, .kr-detail-grid { grid-template-columns: 1fr 1fr; }
+  .okr-cards { grid-template-columns: 1fr; }
+  .people-list { grid-template-columns: 1fr; }
   .city-main, .pk-body { grid-template-columns: 1fr; }
   .versus { font-size: 24px; }
   .person-row { grid-template-columns: 48px 1fr 58px 58px 48px; font-size: 12px; }
@@ -427,6 +568,7 @@ dialog::backdrop { background: rgba(0,0,0,0.62); }
       <header class="topbar">
         <section class="brand">
           <img src="data:image/png;base64,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" alt="小铁台球私教" class="brand-logo" />
+          <span class="brand-slogan">打造全球最大的智能台球教育生态</span>
         </section>
         <section class="title-block">
           <h1>小铁台球教培经营看板</h1>
@@ -618,30 +760,37 @@ const fallbackData = {
     }
   },
   departments: [
-    { name: "流量铺", rate: 38, owner: "夏目", objective: "稳定有效体验课线索" },
-    { name: "C端销售", rate: 28, owner: "可可", objective: "提升成交率与回款" },
-    { name: "小B铺", rate: 42, owner: "渝锦", objective: "复制合作渠道" },
-    { name: "大B端", rate: 25, owner: "逸凡", objective: "签约校区与机构" },
-    { name: "课程开发", rate: 40, owner: "亚饰", objective: "打磨标准课包" },
-    { name: "培训端", rate: 30, owner: "雯静", objective: "提升教练交付一致性" }
+    { name: "流量铺", rate: 38, owner: "夏目", objective: "稳定有效体验课线索", target: "1,400", done: "540", unit: "条", action: "每日复盘素材ROI，淘汰低转化投放组", krs: ["有效线索1400条", "线索成本控制在38元内", "短视频日更12条"] },
+    { name: "C端销售", rate: 28, owner: "可可", objective: "提升成交率与回款", target: "30%", done: "26.7%", unit: "成交率", action: "高意向名单2小时内二次触达，晚间集中逼单", krs: ["成交率30%", "回款35万", "到店体验转化45%"] },
+    { name: "小B铺", rate: 42, owner: "渝锦", objective: "复制合作渠道", target: "20", done: "8", unit: "家", action: "锁定球房老板样板案例，形成招商话术包", krs: ["签约合作球房20家", "渠道营收12万", "样板店SOP完成100%"] },
+    { name: "大B端", rate: 25, owner: "逸凡", objective: "签约校区与机构", target: "6", done: "1.5", unit: "个", action: "重点推进学校与青训机构联名课程", krs: ["签约机构6个", "机构体验课180人", "联名课包上线2套"] },
+    { name: "课程开发", rate: 40, owner: "亚饰", objective: "打磨标准课包", target: "5", done: "2", unit: "套", action: "优先完成广州可复制的私教课包与教案", krs: ["标准课包5套", "教案视频60条", "考核题库完成80%"] },
+    { name: "培训端", rate: 30, owner: "雯静", objective: "提升教练交付一致性", target: "15", done: "5", unit: "人", action: "建立教练周考核，低分项安排一对一陪跑", krs: ["认证教练15人", "交付评分90分", "新人训练营完成3期"] }
   ],
   projects: [
-    { name: "暑假班", rate: 62, owner: "可可", objective: "暑期招生与转介绍" },
-    { name: "赛事活动", rate: 45, owner: "逸凡", objective: "活动获客与品牌曝光" },
-    { name: "等级考试", rate: 30, owner: "遥湖", objective: "考级产品转化" },
-    { name: "线上课", rate: 40, owner: "亚饰", objective: "线上训练营营收" },
-    { name: "台球学校招生", rate: 28, owner: "姚锦", objective: "广州模型验证" },
-    { name: "自媒体矩阵", rate: 48, owner: "夏目", objective: "内容矩阵稳定产出" }
+    { name: "暑假班", rate: 62, owner: "可可", objective: "暑期招生与转介绍", target: "300", done: "186", unit: "人", action: "用老学员转介绍和亲子体验日补齐后半程招生", krs: ["报名300人", "营收28万", "转介绍占比35%"] },
+    { name: "赛事活动", rate: 45, owner: "逸凡", objective: "活动获客与品牌曝光", target: "8", done: "3.6", unit: "场", action: "把赛事报名页与体验课预约打通", krs: ["举办8场", "新增线索260条", "到店体验80人"] },
+    { name: "等级考试", rate: 30, owner: "遥湖", objective: "考级产品转化", target: "120", done: "36", unit: "人", action: "推出考前冲刺包，联动教练做班级推荐", krs: ["考级报名120人", "通过率85%", "考前课包转化40%"] },
+    { name: "线上课", rate: 40, owner: "亚饰", objective: "线上训练营营收", target: "10", done: "4", unit: "万", action: "增加直播诊断课，把线上课承接到私教转化", krs: ["线上营收10万", "训练营学员200人", "私教转化25%"] },
+    { name: "台球学校招生", rate: 28, owner: "姚锦", objective: "广州模型验证", target: "80", done: "22", unit: "人", action: "广州校区先跑通体验课到报名的完整链路", krs: ["广州招生80人", "到店体验160人", "首月留存75%"] },
+    { name: "自媒体矩阵", rate: 48, owner: "夏目", objective: "内容矩阵稳定产出", target: "360", done: "173", unit: "条", action: "统一脚本模板，优先放大高完播选题", krs: ["发布360条", "有效线索500条", "爆款视频12条"] }
   ],
   people: [
-    ["亚饰", "课程总监", 65, 72, "良好"], ["夏目", "流量负责人", 58, 63, "良好"],
-    ["可可", "C端销售负责人", 60, 65, "良好"], ["潘微", "小B端负责人", 55, 60, "良好"],
-    ["逸凡", "大B端负责人", 45, 50, "预警"], ["可晴", "广州运营", 52, 58, "预警"],
-    ["渝锦", "渠道拓展", 49, 54, "预警"], ["遥湖", "考级项目", 41, 47, "滞后"],
-    ["姚锦", "招生运营", 36, 44, "滞后"], ["雯静", "培训主管", 61, 67, "良好"],
-    ["小北", "深圳教练", 70, 74, "良好"], ["阿哲", "广州教练", 43, 51, "预警"],
-    ["南溪", "社群运营", 57, 62, "良好"], ["子墨", "短视频剪辑", 66, 69, "良好"],
-    ["阿星", "客服邀约", 48, 55, "预警"]
+    { department: "课程开发", name: "亚饰", role: "课程总监", objective: "完成标准课包复制", target: "5套", done: "2套", personal: 65, weekly: 72, status: "良好", action: "本周完成广州私教课包验收" },
+    { department: "流量铺", name: "夏目", role: "流量负责人", objective: "稳定有效线索供给", target: "1,400条", done: "540条", personal: 58, weekly: 63, status: "良好", action: "放大高完播素材投放" },
+    { department: "C端销售", name: "可可", role: "C端销售负责人", objective: "提升体验课成交率", target: "30%", done: "26.7%", personal: 60, weekly: 65, status: "良好", action: "晚间集中跟进高意向名单" },
+    { department: "小B铺", name: "潘微", role: "小B端负责人", objective: "跑通渠道合作成交", target: "12万", done: "6.6万", personal: 55, weekly: 60, status: "良好", action: "输出球房合作案例" },
+    { department: "大B端", name: "逸凡", role: "大B端负责人", objective: "签约机构与校区", target: "6个", done: "1.5个", personal: 45, weekly: 50, status: "预警", action: "推进学校联名课程谈判" },
+    { department: "培训端", name: "可晴", role: "广州运营", objective: "广州复制模型落地", target: "60%", done: "40%", personal: 52, weekly: 58, status: "预警", action: "完成岗位SOP演练" },
+    { department: "小B铺", name: "渝锦", role: "渠道拓展", objective: "新增合作球房", target: "20家", done: "8家", personal: 49, weekly: 54, status: "预警", action: "约访重点球房老板" },
+    { department: "项目组", name: "遥湖", role: "考级项目", objective: "考级产品转化", target: "120人", done: "36人", personal: 41, weekly: 47, status: "滞后", action: "推出考前冲刺包" },
+    { department: "项目组", name: "姚锦", role: "招生运营", objective: "广州招生模型验证", target: "80人", done: "22人", personal: 36, weekly: 44, status: "滞后", action: "补齐体验课到报名链路" },
+    { department: "培训端", name: "雯静", role: "培训主管", objective: "教练交付一致性", target: "15人", done: "5人", personal: 61, weekly: 67, status: "良好", action: "组织教练周考核" },
+    { department: "培训端", name: "小北", role: "深圳教练", objective: "提升私教续费", target: "90%", done: "83%", personal: 70, weekly: 74, status: "良好", action: "沉淀高续费课堂案例" },
+    { department: "培训端", name: "阿哲", role: "广州教练", objective: "广州交付稳定", target: "90分", done: "78分", personal: 43, weekly: 51, status: "预警", action: "跟练标准课SOP" },
+    { department: "流量铺", name: "南溪", role: "社群运营", objective: "提升社群转介绍", target: "120条", done: "68条", personal: 57, weekly: 62, status: "良好", action: "推动老学员裂变活动" },
+    { department: "流量铺", name: "子墨", role: "短视频剪辑", objective: "提高内容产能", target: "180条", done: "119条", personal: 66, weekly: 69, status: "良好", action: "批量剪辑高转化切片" },
+    { department: "C端销售", name: "阿星", role: "客服邀约", objective: "提升邀约到店率", target: "45%", done: "32%", personal: 48, weekly: 55, status: "预警", action: "高意向线索优先电话跟进" }
   ]
 };
 
@@ -723,17 +872,24 @@ function render() {
 
   els.departments.innerHTML = cockpitData.departments.map(okrCard).join("");
   els.projects.innerHTML = cockpitData.projects.map(okrCard).join("");
-  els.people.innerHTML = `
-    <div class="person-row header"><span>姓名</span><span>岗位</span><span>个人</span><span>周节奏</span><span>状态</span></div>
-    ${cockpitData.people.map(([name, role, personal, weekly, status]) => `
-      <div class="person-row">
-        <span>${name}</span><span>${role}</span>
-        <strong class="${personal < 45 ? "bad" : personal < 56 ? "warn" : "good"}">${personal}%</strong>
-        <strong class="${weekly < 52 ? "bad" : weekly < 60 ? "warn" : "good"}">${weekly}%</strong>
-        <span class="status-dot ${statusClass(status)}">${status}</span>
+  const people = cockpitData.people.map(normalizePerson);
+  const groupedPeople = people.reduce((groups, person) => {
+    const department = person.department || "未分部门";
+    if (!groups[department]) groups[department] = [];
+    groups[department].push(person);
+    return groups;
+  }, {});
+  els.people.innerHTML = Object.entries(groupedPeople).map(([department, members]) => `
+    <section class="people-group">
+      <div class="people-group-head">
+        <h3>${department}</h3>
+        <span>${members.length}人</span>
       </div>
-    `).join("")}
-  `;
+      <div class="people-group-list">
+        ${members.map(personCard).join("")}
+      </div>
+    </section>
+  `).join("");
 
   els.insights.innerHTML = `
     <section class="insight-group">
@@ -785,8 +941,74 @@ function smallStat(label, value, cls) {
   return `<div class="mini-stat"><span>${label}</span><strong class="${cls}">${value}</strong></div>`;
 }
 
+function normalizePerson(person) {
+  if (!Array.isArray(person)) return person;
+  const [name, role, personal, weekly, status] = person;
+  return {
+    department: "未分部门",
+    name,
+    role,
+    objective: "个人OKR待补充",
+    target: "--",
+    done: "--",
+    personal,
+    weekly,
+    status,
+    action: "待补充"
+  };
+}
+
+function personCard(person) {
+  const personalClass = person.personal < 45 ? "bad" : person.personal < 56 ? "warn" : "good";
+  const weeklyClass = person.weekly < 52 ? "bad" : person.weekly < 60 ? "warn" : "good";
+  return `
+    <article class="person-card">
+      <div class="person-card-top">
+        <div>
+          <strong>${person.name}</strong>
+          <span>${person.role}</span>
+        </div>
+        <span class="status-dot ${statusClass(person.status)}">${person.status}</span>
+      </div>
+      <p>O：${person.objective}</p>
+      <div class="person-values">
+        <span>目标 <b>${person.target}</b></span>
+        <span>完成 <b>${person.done}</b></span>
+      </div>
+      <div class="person-rates">
+        <span>个人 <b class="${personalClass}">${person.personal}%</b></span>
+        <span>周节奏 <b class="${weeklyClass}">${person.weekly}%</b></span>
+      </div>
+      <em>动作：${person.action}</em>
+    </article>
+  `;
+}
+
 function okrCard(item) {
-  return `<section class="okr-card"><h3>${item.name}</h3><strong>${item.rate}%</strong><span>${item.objective}</span><span>负责人：${item.owner}</span></section>`;
+  const valueLabel = item.unit ? `${item.target}${item.unit}` : item.target;
+  const doneLabel = item.unit ? `${item.done}${item.unit}` : item.done;
+  const krs = Array.isArray(item.krs) ? item.krs : [];
+  return `
+    <section class="okr-card">
+      <div class="okr-card-head">
+        <div>
+          <h3>${item.name}</h3>
+          <span class="okr-owner">负责人：${item.owner}</span>
+        </div>
+        <strong class="${item.rate < 35 ? "bad" : item.rate < 55 ? "warn" : "good"}">${item.rate}%</strong>
+      </div>
+      <p class="okr-objective">O：${item.objective}</p>
+      <div class="okr-values">
+        <div><span>目标值</span><b>${valueLabel}</b></div>
+        <div><span>完成值</span><b>${doneLabel}</b></div>
+      </div>
+      <div class="okr-progress" style="--value:${item.rate}"><i></i></div>
+      <ul class="okr-kr-list">
+        ${krs.map((kr, index) => `<li><b>KR${index + 1}</b><span>${kr}</span></li>`).join("")}
+      </ul>
+      <p class="okr-action">动作：${item.action || "待补充"}</p>
+    </section>
+  `;
 }
 
 async function loadRemoteData(manual = false) {
