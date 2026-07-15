@@ -1,0 +1,644 @@
+{
+  "meta": {
+    "company": "小铁台球教培",
+    "period": "2026年7月1日 - 7月31日",
+    "updatedAt": "2026-07-14 17:50",
+    "totalGoal": 85,
+    "syncMode": "静态JSON数据"
+  },
+  "views": {
+    "month": {
+      "label": "月",
+      "mission": {
+        "time": 42,
+        "goal": 85,
+        "completed": 23.68,
+        "rate": 27.8,
+        "status": "滞后",
+        "gap": -15
+      },
+      "cities": [
+        {
+          "key": "shenzhen",
+          "name": "深圳",
+          "color": "#28e681",
+          "rate": 24.7,
+          "goal": 35,
+          "completed": 8.65,
+          "time": 42,
+          "gap": -17.35,
+          "forecast": 31.2,
+          "needed": 26.55,
+          "status": "滞后"
+        },
+        {
+          "key": "guangzhou",
+          "name": "广州",
+          "color": "#1aa7ff",
+          "rate": 6.8,
+          "goal": 25,
+          "completed": 1.7,
+          "time": 42,
+          "gap": -23.3,
+          "forecast": 8.8,
+          "needed": 23.3,
+          "status": "滞后"
+        }
+      ],
+      "companyKr": [
+        {
+          "code": "KR1",
+          "title": "公司营收目标85万",
+          "target": "850,000",
+          "done": "236,810",
+          "rate": 27.8,
+          "owner": "亚饰",
+          "support": "C端 / 小B / 大B",
+          "risk": "广州收入不足",
+          "action": "增加直播获客，提升转化",
+          "color": "#ff4d5e"
+        },
+        {
+          "code": "KR2",
+          "title": "有效体验课线索1400个",
+          "target": "1,400",
+          "done": "540",
+          "rate": 38.6,
+          "owner": "夏目",
+          "support": "流量铺 / C端",
+          "risk": "线索成本偏高",
+          "action": "优化投放ROI，提升短视频质量",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR3",
+          "title": "成交率提升至30%",
+          "target": "30%",
+          "done": "26.7%",
+          "rate": 26.7,
+          "owner": "可可",
+          "support": "C端 / 小B / 大B",
+          "risk": "广州团队经验不足",
+          "action": "强化销售话术与跟进SOP",
+          "color": "#ff4d5e"
+        },
+        {
+          "code": "KR4",
+          "title": "广州复制模型完成60%",
+          "target": "60%",
+          "done": "40%",
+          "rate": 40,
+          "owner": "可晴",
+          "support": "C端 / 开发 / 大B",
+          "risk": "广州团队磨合不足",
+          "action": "完善培训体系，加快岗位SOP",
+          "color": "#ffb11a"
+        }
+      ]
+    },
+    "week": {
+      "label": "周",
+      "mission": {
+        "time": 57,
+        "goal": 21.25,
+        "completed": 7.9,
+        "rate": 37.2,
+        "status": "预警",
+        "gap": -4.2
+      },
+      "cities": [
+        {
+          "key": "shenzhen",
+          "name": "深圳",
+          "color": "#28e681",
+          "rate": 46.3,
+          "goal": 8.75,
+          "completed": 4.05,
+          "time": 57,
+          "gap": -0.94,
+          "forecast": 9.1,
+          "needed": 4.7,
+          "status": "预警"
+        },
+        {
+          "key": "guangzhou",
+          "name": "广州",
+          "color": "#1aa7ff",
+          "rate": 30.8,
+          "goal": 6.25,
+          "completed": 1.93,
+          "time": 57,
+          "gap": -1.62,
+          "forecast": 5.4,
+          "needed": 4.32,
+          "status": "滞后"
+        }
+      ],
+      "companyKr": [
+        {
+          "code": "KR1",
+          "title": "本周营收目标21.25万",
+          "target": "212,500",
+          "done": "79,000",
+          "rate": 37.2,
+          "owner": "亚饰",
+          "support": "双城销售",
+          "risk": "广州低于周节奏",
+          "action": "每日复盘成交漏斗",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR2",
+          "title": "体验课线索350个",
+          "target": "350",
+          "done": "151",
+          "rate": 43.1,
+          "owner": "夏目",
+          "support": "内容 / 投放",
+          "risk": "投放时段不稳定",
+          "action": "加大晚间高转化素材",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR3",
+          "title": "成交率周均30%",
+          "target": "30%",
+          "done": "27.9%",
+          "rate": 48,
+          "owner": "可可",
+          "support": "销售组",
+          "risk": "跟进时效低",
+          "action": "2小时内二次触达",
+          "color": "#1aa7ff"
+        },
+        {
+          "code": "KR4",
+          "title": "广州SOP本周完成15%",
+          "target": "15%",
+          "done": "9%",
+          "rate": 60,
+          "owner": "可晴",
+          "support": "教研 / 运营",
+          "risk": "培训排期挤压",
+          "action": "固定晨会演练",
+          "color": "#28e681"
+        }
+      ]
+    },
+    "day": {
+      "label": "日",
+      "mission": {
+        "time": 70,
+        "goal": 3.05,
+        "completed": 1.36,
+        "rate": 44.6,
+        "status": "预警",
+        "gap": -0.78
+      },
+      "cities": [
+        {
+          "key": "shenzhen",
+          "name": "深圳",
+          "color": "#28e681",
+          "rate": 62.9,
+          "goal": 1.25,
+          "completed": 0.79,
+          "time": 70,
+          "gap": -0.08,
+          "forecast": 1.32,
+          "needed": 0.46,
+          "status": "良好"
+        },
+        {
+          "key": "guangzhou",
+          "name": "广州",
+          "color": "#1aa7ff",
+          "rate": 28,
+          "goal": 0.9,
+          "completed": 0.25,
+          "time": 70,
+          "gap": -0.38,
+          "forecast": 0.62,
+          "needed": 0.65,
+          "status": "滞后"
+        }
+      ],
+      "companyKr": [
+        {
+          "code": "KR1",
+          "title": "今日营收目标3.05万",
+          "target": "30,500",
+          "done": "13,600",
+          "rate": 44.6,
+          "owner": "亚饰",
+          "support": "门店 / 销售",
+          "risk": "晚高峰未释放",
+          "action": "盯紧20:00前转化",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR2",
+          "title": "今日体验课线索50个",
+          "target": "50",
+          "done": "23",
+          "rate": 46,
+          "owner": "夏目",
+          "support": "流量组",
+          "risk": "自然流量偏低",
+          "action": "补2条短视频切片",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR3",
+          "title": "今日成交率30%",
+          "target": "30%",
+          "done": "25%",
+          "rate": 41,
+          "owner": "可可",
+          "support": "销售组",
+          "risk": "邀约到店率低",
+          "action": "重点跟进高意向名单",
+          "color": "#ffb11a"
+        },
+        {
+          "code": "KR4",
+          "title": "今日广州复制动作",
+          "target": "4项",
+          "done": "2项",
+          "rate": 50,
+          "owner": "可晴",
+          "support": "运营",
+          "risk": "教练排班冲突",
+          "action": "完成闭店复盘",
+          "color": "#1aa7ff"
+        }
+      ]
+    }
+  },
+  "departments": [
+    {
+      "name": "流量铺",
+      "rate": 38,
+      "owner": "夏目",
+      "objective": "稳定有效体验课线索",
+      "target": "1,400",
+      "done": "540",
+      "unit": "条",
+      "action": "每日复盘素材ROI，淘汰低转化投放组",
+      "krs": [
+        "有效线索1400条",
+        "线索成本控制在38元内",
+        "短视频日更12条"
+      ]
+    },
+    {
+      "name": "C端销售",
+      "rate": 28,
+      "owner": "可可",
+      "objective": "提升成交率与回款",
+      "target": "30%",
+      "done": "26.7%",
+      "unit": "成交率",
+      "action": "高意向名单2小时内二次触达，晚间集中逼单",
+      "krs": [
+        "成交率30%",
+        "回款35万",
+        "到店体验转化45%"
+      ]
+    },
+    {
+      "name": "小B铺",
+      "rate": 42,
+      "owner": "渝锦",
+      "objective": "复制合作渠道",
+      "target": "20",
+      "done": "8",
+      "unit": "家",
+      "action": "锁定球房老板样板案例，形成招商话术包",
+      "krs": [
+        "签约合作球房20家",
+        "渠道营收12万",
+        "样板店SOP完成100%"
+      ]
+    },
+    {
+      "name": "大B端",
+      "rate": 25,
+      "owner": "逸凡",
+      "objective": "签约校区与机构",
+      "target": "6",
+      "done": "1.5",
+      "unit": "个",
+      "action": "重点推进学校与青训机构联名课程",
+      "krs": [
+        "签约机构6个",
+        "机构体验课180人",
+        "联名课包上线2套"
+      ]
+    },
+    {
+      "name": "课程开发",
+      "rate": 40,
+      "owner": "亚饰",
+      "objective": "打磨标准课包",
+      "target": "5",
+      "done": "2",
+      "unit": "套",
+      "action": "优先完成广州可复制的私教课包与教案",
+      "krs": [
+        "标准课包5套",
+        "教案视频60条",
+        "考核题库完成80%"
+      ]
+    },
+    {
+      "name": "培训端",
+      "rate": 30,
+      "owner": "雯静",
+      "objective": "提升教练交付一致性",
+      "target": "15",
+      "done": "5",
+      "unit": "人",
+      "action": "建立教练周考核，低分项安排一对一陪跑",
+      "krs": [
+        "认证教练15人",
+        "交付评分90分",
+        "新人训练营完成3期"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "暑假班",
+      "rate": 62,
+      "owner": "可可",
+      "objective": "暑期招生与转介绍",
+      "target": "300",
+      "done": "186",
+      "unit": "人",
+      "action": "用老学员转介绍和亲子体验日补齐后半程招生",
+      "krs": [
+        "报名300人",
+        "营收28万",
+        "转介绍占比35%"
+      ]
+    },
+    {
+      "name": "赛事活动",
+      "rate": 45,
+      "owner": "逸凡",
+      "objective": "活动获客与品牌曝光",
+      "target": "8",
+      "done": "3.6",
+      "unit": "场",
+      "action": "把赛事报名页与体验课预约打通",
+      "krs": [
+        "举办8场",
+        "新增线索260条",
+        "到店体验80人"
+      ]
+    },
+    {
+      "name": "等级考试",
+      "rate": 30,
+      "owner": "遥湖",
+      "objective": "考级产品转化",
+      "target": "120",
+      "done": "36",
+      "unit": "人",
+      "action": "推出考前冲刺包，联动教练做班级推荐",
+      "krs": [
+        "考级报名120人",
+        "通过率85%",
+        "考前课包转化40%"
+      ]
+    },
+    {
+      "name": "线上课",
+      "rate": 40,
+      "owner": "亚饰",
+      "objective": "线上训练营营收",
+      "target": "10",
+      "done": "4",
+      "unit": "万",
+      "action": "增加直播诊断课，把线上课承接到私教转化",
+      "krs": [
+        "线上营收10万",
+        "训练营学员200人",
+        "私教转化25%"
+      ]
+    },
+    {
+      "name": "台球学校招生",
+      "rate": 28,
+      "owner": "姚锦",
+      "objective": "广州模型验证",
+      "target": "80",
+      "done": "22",
+      "unit": "人",
+      "action": "广州校区先跑通体验课到报名的完整链路",
+      "krs": [
+        "广州招生80人",
+        "到店体验160人",
+        "首月留存75%"
+      ]
+    },
+    {
+      "name": "自媒体矩阵",
+      "rate": 48,
+      "owner": "夏目",
+      "objective": "内容矩阵稳定产出",
+      "target": "360",
+      "done": "173",
+      "unit": "条",
+      "action": "统一脚本模板，优先放大高完播选题",
+      "krs": [
+        "发布360条",
+        "有效线索500条",
+        "爆款视频12条"
+      ]
+    }
+  ],
+  "people": [
+    {
+      "department": "课程开发",
+      "name": "亚饰",
+      "role": "课程总监",
+      "objective": "完成标准课包复制",
+      "target": "5套",
+      "done": "2套",
+      "personal": 65,
+      "weekly": 72,
+      "status": "良好",
+      "action": "本周完成广州私教课包验收"
+    },
+    {
+      "department": "流量铺",
+      "name": "夏目",
+      "role": "流量负责人",
+      "objective": "稳定有效线索供给",
+      "target": "1,400条",
+      "done": "540条",
+      "personal": 58,
+      "weekly": 63,
+      "status": "良好",
+      "action": "放大高完播素材投放"
+    },
+    {
+      "department": "C端销售",
+      "name": "可可",
+      "role": "C端销售负责人",
+      "objective": "提升体验课成交率",
+      "target": "30%",
+      "done": "26.7%",
+      "personal": 60,
+      "weekly": 65,
+      "status": "良好",
+      "action": "晚间集中跟进高意向名单"
+    },
+    {
+      "department": "小B铺",
+      "name": "潘微",
+      "role": "小B端负责人",
+      "objective": "跑通渠道合作成交",
+      "target": "12万",
+      "done": "6.6万",
+      "personal": 55,
+      "weekly": 60,
+      "status": "良好",
+      "action": "输出球房合作案例"
+    },
+    {
+      "department": "大B端",
+      "name": "逸凡",
+      "role": "大B端负责人",
+      "objective": "签约机构与校区",
+      "target": "6个",
+      "done": "1.5个",
+      "personal": 45,
+      "weekly": 50,
+      "status": "预警",
+      "action": "推进学校联名课程谈判"
+    },
+    {
+      "department": "培训端",
+      "name": "可晴",
+      "role": "广州运营",
+      "objective": "广州复制模型落地",
+      "target": "60%",
+      "done": "40%",
+      "personal": 52,
+      "weekly": 58,
+      "status": "预警",
+      "action": "完成岗位SOP演练"
+    },
+    {
+      "department": "小B铺",
+      "name": "渝锦",
+      "role": "渠道拓展",
+      "objective": "新增合作球房",
+      "target": "20家",
+      "done": "8家",
+      "personal": 49,
+      "weekly": 54,
+      "status": "预警",
+      "action": "约访重点球房老板"
+    },
+    {
+      "department": "项目组",
+      "name": "遥湖",
+      "role": "考级项目",
+      "objective": "考级产品转化",
+      "target": "120人",
+      "done": "36人",
+      "personal": 41,
+      "weekly": 47,
+      "status": "滞后",
+      "action": "推出考前冲刺包"
+    },
+    {
+      "department": "项目组",
+      "name": "姚锦",
+      "role": "招生运营",
+      "objective": "广州招生模型验证",
+      "target": "80人",
+      "done": "22人",
+      "personal": 36,
+      "weekly": 44,
+      "status": "滞后",
+      "action": "补齐体验课到报名链路"
+    },
+    {
+      "department": "培训端",
+      "name": "雯静",
+      "role": "培训主管",
+      "objective": "教练交付一致性",
+      "target": "15人",
+      "done": "5人",
+      "personal": 61,
+      "weekly": 67,
+      "status": "良好",
+      "action": "组织教练周考核"
+    },
+    {
+      "department": "培训端",
+      "name": "小北",
+      "role": "深圳教练",
+      "objective": "提升私教续费",
+      "target": "90%",
+      "done": "83%",
+      "personal": 70,
+      "weekly": 74,
+      "status": "良好",
+      "action": "沉淀高续费课堂案例"
+    },
+    {
+      "department": "培训端",
+      "name": "阿哲",
+      "role": "广州教练",
+      "objective": "广州交付稳定",
+      "target": "90分",
+      "done": "78分",
+      "personal": 43,
+      "weekly": 51,
+      "status": "预警",
+      "action": "跟练标准课SOP"
+    },
+    {
+      "department": "流量铺",
+      "name": "南溪",
+      "role": "社群运营",
+      "objective": "提升社群转介绍",
+      "target": "120条",
+      "done": "68条",
+      "personal": 57,
+      "weekly": 62,
+      "status": "良好",
+      "action": "推动老学员裂变活动"
+    },
+    {
+      "department": "流量铺",
+      "name": "子墨",
+      "role": "短视频剪辑",
+      "objective": "提高内容产能",
+      "target": "180条",
+      "done": "119条",
+      "personal": 66,
+      "weekly": 69,
+      "status": "良好",
+      "action": "批量剪辑高转化切片"
+    },
+    {
+      "department": "C端销售",
+      "name": "阿星",
+      "role": "客服邀约",
+      "objective": "提升邀约到店率",
+      "target": "45%",
+      "done": "32%",
+      "personal": 48,
+      "weekly": 55,
+      "status": "预警",
+      "action": "高意向线索优先电话跟进"
+    }
+  ]
+}

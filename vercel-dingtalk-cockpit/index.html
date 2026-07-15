@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小铁台球教培经营看板</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="cockpit">
+      <header class="topbar">
+        <section class="brand">
+          <img src="./xiaotie-logo.png" alt="小铁台球私教" class="brand-logo" />
+          <span class="brand-slogan">打造全球最大的智能台球教育生态</span>
+        </section>
+        <section class="title-block">
+          <h1>小铁台球教培经营看板</h1>
+          <div class="subline">
+            <span id="periodText">数据周期：2026年7月1日 - 7月31日</span>
+            <span id="updatedText">更新于：--</span>
+            <span id="syncText">钉钉同步：内置示例数据</span>
+          </div>
+        </section>
+        <section class="goal-pill">
+          <span>经营目标</span>
+          <strong id="totalGoal">85万</strong>
+        </section>
+      </header>
+
+      <section class="filters" aria-label="时间筛选">
+        <button class="chip active" data-view="month">月经营</button>
+        <button class="chip" data-view="week">周经营</button>
+        <button class="chip" data-view="day">日经营</button>
+        <button class="chip ghost" id="refreshButton">刷新数据</button>
+      </section>
+
+      <section class="hero-grid">
+        <article class="mission panel">
+          <div class="target-scope">
+            <span>公司唯一 O</span>
+            <strong>50天复制一个深圳，实现广州市场启动，完成双城营收目标</strong>
+          </div>
+          <div class="mission-metrics" id="missionMetrics"></div>
+        </article>
+        <article class="panel kr-progress">
+          <div class="panel-head">
+            <h2>公司4个KR达成进度</h2>
+            <span>总览</span>
+          </div>
+          <div id="companyKrList" class="kr-list"></div>
+        </article>
+      </section>
+
+      <section class="city-grid">
+        <article class="panel city-card" id="shenzhenCard"></article>
+        <article class="panel city-card" id="guangzhouCard"></article>
+        <article class="panel pk-card">
+          <div class="panel-head">
+            <h2>双城经营PK</h2>
+            <span id="pkViewLabel">月</span>
+          </div>
+          <div class="pk-body">
+            <div class="pk-side shenzhen">
+              <strong>深圳</strong>
+              <b id="szRevenue">--</b>
+              <span>目标营收</span>
+              <em id="szDone">--</em>
+              <svg viewBox="0 0 160 42" class="spark spark-up"><polyline points="0,38 18,35 36,31 54,28 72,22 90,20 108,14 126,12 144,8 160,3"/></svg>
+            </div>
+            <div class="versus">VS</div>
+            <div class="pk-side guangzhou">
+              <strong>广州</strong>
+              <b id="gzRevenue">--</b>
+              <span>目标营收</span>
+              <em id="gzDone">--</em>
+              <svg viewBox="0 0 160 42" class="spark spark-down"><polyline points="0,12 18,15 36,17 54,20 72,22 90,26 108,28 126,31 144,35 160,38"/></svg>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="detail-grid">
+        <article class="panel company-kr">
+          <div class="panel-head">
+            <h2>公司4个KR详情</h2>
+            <button class="link-button" data-panel="company">更多</button>
+          </div>
+          <div id="krDetails" class="kr-detail-grid"></div>
+        </article>
+        <article class="panel ai-panel">
+          <div class="panel-head">
+            <h2>AI经营分析</h2>
+            <span>自动诊断</span>
+          </div>
+          <div id="aiInsights"></div>
+        </article>
+      </section>
+
+      <section class="okr-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>六部门OKR达成情况</h2>
+            <button class="link-button" data-panel="departments">更多</button>
+          </div>
+          <div id="departmentOkr" class="okr-cards"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <h2>六项目OKR达成情况</h2>
+            <button class="link-button" data-panel="projects">更多</button>
+          </div>
+          <div id="projectOkr" class="okr-cards"></div>
+        </article>
+        <article class="panel people-panel">
+          <div class="panel-head">
+            <h2>15个人OKR概览</h2>
+            <button class="link-button" data-panel="people">全部</button>
+          </div>
+          <div id="peopleOkr" class="people-list"></div>
+        </article>
+      </section>
+    </main>
+
+    <aside class="data-dock" aria-label="数据中心">
+      <button class="dock-toggle" id="dockToggle" title="数据中心">⚙</button>
+      <nav class="dock-menu" id="dockMenu">
+        <strong>数据中心</strong>
+        <button id="uploadButton">上传Excel数据</button>
+        <button id="templateButton">下载Excel模板</button>
+        <button id="syncButton">同步钉钉数据</button>
+        <button id="pngButton">导出PNG图片</button>
+        <button id="pdfButton">导出PDF报告</button>
+        <button id="settingsButton">系统设置</button>
+      </nav>
+    </aside>
+
+    <dialog id="syncDialog">
+      <form method="dialog" class="dialog-card">
+        <h3>钉钉实时同步设置</h3>
+        <p>Vercel 线上默认读取 /api/dingtalk-data。也可以填入其他公开 HTTPS JSON 地址，页面会每60秒自动拉取最新经营与OKR数据。</p>
+        <label>
+          数据接口
+          <input id="endpointInput" type="url" placeholder="留空默认读取 /api/dingtalk-data" />
+        </label>
+        <menu>
+          <button value="cancel">取消</button>
+          <button id="saveEndpoint" value="default">保存</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

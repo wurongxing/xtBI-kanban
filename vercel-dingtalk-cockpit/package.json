@@ -1,0 +1,9 @@
+{
+  "name": "xiaotie-dingtalk-cockpit",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "vercel dev",
+    "check": "node --check api/dingtalk-data.js"
+  }
+}
