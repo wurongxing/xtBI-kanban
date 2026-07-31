@@ -103,6 +103,7 @@ const fallbackData = {
   ]
 };
 
+const AUTO_SYNC_INTERVAL_MS = 30000;
 let activeView = "month";
 let cockpitData = fallbackData;
 const coachTableState = {};
@@ -1448,4 +1449,4 @@ document.querySelector("#uploadButton").addEventListener("click", uploadExcelDat
 
 render();
 loadRemoteData(false);
-setInterval(() => loadRemoteData(false), 60000);
+setInterval(() => loadRemoteData(false), AUTO_SYNC_INTERVAL_MS);

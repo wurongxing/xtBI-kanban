@@ -4,6 +4,16 @@ const https = require("https");
 
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
+const DEFAULT_REQUIRED_SHEETS = [
+  "基础配置",
+  "双城经营",
+  "公司KR",
+  "六部门OKR",
+  "六项目OKR",
+  "教练经营",
+  "城区分布",
+  "转化漏斗"
+];
 
 module.exports = async function handler(req, res) {
   setCors(res);
@@ -12,6 +22,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  const startedAt = Date.now();
   try {
     const sheets = await fetchAllSheets();
     const data = transformWorkbook(sheets);
@@ -20,6 +31,7 @@ module.exports = async function handler(req, res) {
     res.status(500).json({
       error: "DINGTALK_SYNC_FAILED",
       message: error.message,
+      durationMs: Date.now() - startedAt,
       hint: "请检查 Vercel 环境变量、钉钉应用权限、operatorId、workbookId、sheetId 和表头是否与模板一致。"
     });
   }
@@ -34,15 +46,37 @@ function setCors(res) {
 
 async function fetchAllSheets() {
   const mapping = parseJsonEnv("DINGTALK_SHEETS");
-  const result = {};
-  for (const [name, sheetId] of Object.entries(mapping)) {
-    result[name] = await fetchSheetValues(sheetId);
-  }
-  return result;
+  const token = await getDingTalkAccessToken();
+  const sheetNames = requiredSheetNames(mapping);
+  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 4);
+  const entries = await mapLimit(sheetNames, concurrency, async (name) => {
+    const sheetId = mapping[name];
+    if (!sheetId) return [name, []];
+    return [name, await fetchSheetValues(sheetId, token)];
+  });
+  return Object.fromEntries(entries);
 }
 
-async function fetchSheetValues(sheetId) {
-  const token = await getDingTalkAccessToken();
+function requiredSheetNames(mapping) {
+  const raw = process.env.DINGTALK_REQUIRED_SHEETS;
+  if (raw) {
+    const names = parseSheetNameList(raw).filter((name) => mapping[name]);
+    if (names.length) return names;
+  }
+  return DEFAULT_REQUIRED_SHEETS.filter((name) => mapping[name]);
+}
+
+function parseSheetNameList(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map((item) => text(item)).filter(Boolean);
+  } catch (error) {
+    // Allow a simple comma/newline separated env value for easier Vercel editing.
+  }
+  return String(raw).split(/[,\n，；;]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+async function fetchSheetValues(sheetId, token) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const range = encodeURIComponent(process.env.DINGTALK_RANGE || "A1:Z300");
@@ -85,6 +119,7 @@ async function getDingTalkAccessToken() {
 
 function requestJson(url, options, label) {
   return new Promise((resolve, reject) => {
+    const timeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 9000);
     const req = https.request(url, options, (res) => {
       let body = "";
       res.setEncoding("utf8");
@@ -102,9 +137,26 @@ function requestJson(url, options, label) {
       });
     });
     req.on("error", reject);
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`${label}: 请求超过 ${timeoutMs}ms`));
+    });
     if (options.body) req.write(options.body);
     req.end();
   });
+}
+
+async function mapLimit(items, limit, worker) {
+  const result = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      result[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return result;
 }
 
 function extractMatrix(payload) {
@@ -447,6 +499,12 @@ function avg(values) {
 function round(value, digits = 1) {
   const base = Math.pow(10, digits);
   return Math.round((Number(value) || 0) * base) / base;
+}
+
+function clampInt(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(number)));
 }
 
 function statusByRate(rate, time = 100) {
