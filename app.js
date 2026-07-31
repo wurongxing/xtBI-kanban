@@ -984,22 +984,45 @@ function accentFor(name = "") {
 
 async function loadRemoteData(manual = false) {
   const defaultEndpoint = window.location.protocol === "file:" ? "./data.json" : "/api/dingtalk-data";
-  const endpoint = localStorage.getItem("dingtalkEndpoint") || defaultEndpoint;
-  if (!endpoint) {
+  const savedEndpoint = localStorage.getItem("dingtalkEndpoint");
+  const endpoints = savedEndpoint && savedEndpoint !== defaultEndpoint
+    ? [savedEndpoint, defaultEndpoint]
+    : [defaultEndpoint];
+  if (!endpoints.length) {
     if (manual) alert("还没有配置数据接口。");
     return;
   }
+  const errors = [];
   try {
-    const response = await fetch(endpoint, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    cockpitData = await response.json();
-    cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
+    let loaded = null;
+    let loadedEndpoint = "";
+    for (const endpoint of endpoints) {
+      try {
+        loaded = await fetchRemoteJson(endpoint);
+        loadedEndpoint = endpoint;
+        break;
+      } catch (error) {
+        errors.push(`${endpoint}: ${error.message}`);
+      }
+    }
+    if (!loaded) throw new Error(errors.join("；"));
+    if (savedEndpoint && loadedEndpoint === defaultEndpoint) {
+      localStorage.removeItem("dingtalkEndpoint");
+    }
+    cockpitData = loaded;
+    cockpitData.meta.syncMode = loadedEndpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
     render();
   } catch (error) {
-    cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
+    cockpitData.meta.syncMode = defaultEndpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
   }
+}
+
+async function fetchRemoteJson(endpoint) {
+  const response = await fetch(endpoint, { cache: "no-store" });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
 function downloadFile(url, filename) {
