@@ -1292,12 +1292,28 @@ async function exportPng() {
     return;
   }
   els.dockMenu.classList.remove("open");
-  const canvas = await html2canvas(document.querySelector(".cockpit"), {
-    backgroundColor: "#020814",
-    scale: Math.min(window.devicePixelRatio || 1, 2),
-    useCORS: true
-  });
-  downloadFile(canvas.toDataURL("image/png"), timestampName("小铁台球经营看板", "png"));
+  try {
+    document.body.classList.add("exporting");
+    const target = document.querySelector(".cockpit");
+    const width = Math.max(target.scrollWidth, document.documentElement.scrollWidth, window.innerWidth);
+    const height = Math.max(target.scrollHeight, document.documentElement.scrollHeight, window.innerHeight);
+    const canvas = await html2canvas(target, {
+      backgroundColor: "#020814",
+      scale: Math.min(window.devicePixelRatio || 1, 2),
+      useCORS: true,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
+      scrollX: 0,
+      scrollY: 0
+    });
+    downloadFile(canvas.toDataURL("image/png"), timestampName("小铁台球经营看板", "png"));
+  } catch (error) {
+    alert(`PNG导出失败：${error.message}`);
+  } finally {
+    document.body.classList.remove("exporting");
+  }
 }
 
 async function exportPdf() {
@@ -1306,15 +1322,31 @@ async function exportPdf() {
     return;
   }
   els.dockMenu.classList.remove("open");
-  const canvas = await html2canvas(document.querySelector(".cockpit"), {
-    backgroundColor: "#020814",
-    scale: Math.min(window.devicePixelRatio || 1, 2),
-    useCORS: true
-  });
-  const image = canvas.toDataURL("image/jpeg", 0.95);
-  const pdf = new jspdf.jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height] });
-  pdf.addImage(image, "JPEG", 0, 0, canvas.width, canvas.height);
-  pdf.save(timestampName("小铁台球经营报告", "pdf"));
+  try {
+    document.body.classList.add("exporting");
+    const target = document.querySelector(".cockpit");
+    const width = Math.max(target.scrollWidth, document.documentElement.scrollWidth, window.innerWidth);
+    const height = Math.max(target.scrollHeight, document.documentElement.scrollHeight, window.innerHeight);
+    const canvas = await html2canvas(target, {
+      backgroundColor: "#020814",
+      scale: Math.min(window.devicePixelRatio || 1, 2),
+      useCORS: true,
+      width,
+      height,
+      windowWidth: width,
+      windowHeight: height,
+      scrollX: 0,
+      scrollY: 0
+    });
+    const image = canvas.toDataURL("image/jpeg", 0.95);
+    const pdf = new jspdf.jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height] });
+    pdf.addImage(image, "JPEG", 0, 0, canvas.width, canvas.height);
+    pdf.save(timestampName("小铁台球经营报告", "pdf"));
+  } catch (error) {
+    alert(`PDF导出失败：${error.message}`);
+  } finally {
+    document.body.classList.remove("exporting");
+  }
 }
 
 document.querySelectorAll("[data-view]").forEach(button => {

@@ -1108,6 +1108,15 @@ button {
 }
 .dock-menu button:hover { background: rgba(255,255,255,0.08); }
 
+body.exporting .data-dock { display: none; }
+body.exporting .coach-table-wrap {
+  overflow: visible;
+}
+body.exporting .cockpit {
+  width: max-content;
+  min-width: 1440px;
+}
+
 dialog {
   border: 1px solid var(--line);
   border-radius: 10px;
