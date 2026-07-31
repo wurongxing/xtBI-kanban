@@ -1001,6 +1001,322 @@ async function loadRemoteData(manual = false) {
   }
 }
 
+function downloadFile(url, filename) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function timestampName(prefix, ext) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  return `${prefix}-${stamp}.${ext}`;
+}
+
+async function uploadExcelData() {
+  if (!window.XLSX) {
+    alert("Excel解析组件还没加载完成，请刷新页面后再试。");
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".xlsx,.xls";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      cockpitData = transformExcelWorkbook(workbook);
+      cockpitData.meta.syncMode = `本地Excel上传：${file.name}`;
+      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      localStorage.removeItem("dingtalkEndpoint");
+      render();
+      alert("Excel数据已读取并刷新看板。注意：这是当前浏览器本地预览；要让所有人实时看到，请继续配置钉钉同步。");
+    } catch (error) {
+      alert(`Excel读取失败：${error.message}`);
+    }
+  }, { once: true });
+  input.click();
+}
+
+function transformExcelWorkbook(workbook) {
+  const sheets = Object.fromEntries(workbook.SheetNames.map((name) => {
+    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: false, defval: "" });
+    return [name, matrix];
+  }));
+  const metaRows = excelRows(sheets["基础配置"]);
+  const cityRows = excelRows(sheets["双城经营"]);
+  const krRows = excelRows(sheets["公司KR"]);
+  const departmentRows = excelRows(sheets["六部门OKR"]);
+  const projectRows = excelRows(sheets["六项目OKR"]);
+  const personRows = excelRows(sheets["个人OKR"]);
+  const coachRows = excelRows(sheets["教练经营"]);
+  const districtRows = excelRows(sheets["城区分布"]);
+  const funnelRows = excelRows(sheets["转化漏斗"]);
+  const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+  const views = {};
+
+  for (const view of ["month", "week", "day"]) {
+    const cities = cityRows
+      .filter((r) => excelText(r.period_type) === view)
+      .map((r) => {
+        const cityName = excelText(r["城市"]);
+        return {
+          key: cityName === "深圳" ? "shenzhen" : "guangzhou",
+          name: cityName,
+          color: cityName === "深圳" ? "#0066ff" : "#1aa7ff",
+          goal: excelNum(r["目标营收_万元"]),
+          completed: excelNum(r["实际完成_万元"]),
+          rate: excelNum(r["完成率_%"]),
+          time: excelNum(r["时间进度_%"]),
+          gap: excelNum(r["差距_万元"]),
+          forecast: excelNum(r["预计月底_万元"]),
+          needed: excelNum(r["还需完成_万元"]),
+          status: excelText(r["状态"], "预警"),
+          monthlyGoal: excelNum(r["月度目标_万元"], excelNum(r["目标营收_万元"])),
+          monthlyCompleted: excelNum(r["月度完成_万元"], excelNum(r["实际完成_万元"])),
+          weekGoal: excelNum(r["周目标_万元"], excelNum(r["目标营收_万元"]) / 4),
+          weekCompleted: excelNum(r["周完成_万元"]),
+          yesterdayCompleted: excelNum(r["昨日完成_万元"]),
+          courseUsersTotal: excelNum(r["正课总用户数"]),
+          courseUsersExpiring: excelNum(r["到期用户数"]),
+          courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),
+          trialLessonsTotal: excelNum(r["总体验课数"]),
+          trialLessonsMonth: excelNum(r["本月体验课数"]),
+          trialDeals: excelNum(r["体验课成交数"]),
+          coachesTotal: excelNum(r["总教练数"]),
+          coachesNew: excelNum(r["新增教练数"]),
+          coachesNewMonth: excelNum(r["月度新增教练数"], excelNum(r["新增教练数"])),
+          coachesNewYesterday: excelNum(r["昨日新增教练数"]),
+          coachesNewMonthNames: excelSplit(r["月度新增教练名字"] || r["本月新增教练名字"] || r["本月新增教练"]),
+          coachesNewYesterdayNames: excelSplit(r["昨日新增教练名字"] || r["昨天新增教练名字"] || r["昨日新增教练"]),
+          storesTotal: excelNum(r["入驻门店数"]),
+          storesPaidTotal: excelNum(r["付费入驻门店数"]),
+          storesFreeTotal: excelNum(r["免费入驻门店数"]),
+          storesNew: excelNum(r["新增门店数"]),
+          storesNewPaid: excelNum(r["月度新签付费门店数"] || r["新签付费门店数"]),
+          storesNewFree: excelNum(r["月度新签免费门店数"] || r["新签免费门店数"]),
+          storesNewMonth: excelNum(r["月度新增门店数"], excelNum(r["新增门店数"])),
+          storesNewYesterday: excelNum(r["昨日新增门店数"]),
+          storesNewMonthList: excelStoreItems(r["月度新增门店所在区及名字"] || r["月度新增门店"] || r["本月新增门店"]),
+          storesNewYesterdayList: excelStoreItems(r["昨日新增门店所在区及名字"] || r["昨日新增门店"]),
+          newSignedStores: excelNum(r["新签门店数"], excelNum(r["新增门店数"])),
+          channels: {
+            user: excelChannelMetrics(r, "用户端"),
+            coach: excelChannelMetrics(r, "教练端"),
+            store: excelChannelMetrics(r, "门店端")
+          },
+          coaches: coachRows
+            .filter((coach) => excelText(coach.period_type, view) === view && excelText(coach["城市"]) === cityName)
+            .map(excelCoach),
+          districts: districtRows
+            .filter((district) => excelText(district.period_type, view) === view && excelText(district["城市"]) === cityName)
+            .map((district) => ({
+              name: excelText(district["区域"]),
+              coaches: excelNum(district["教练数"]),
+              coachNames: excelSplit(district["教练名字"] || district["教练名称"] || district["教练名单"]),
+              stores: excelNum(district["门店数"]),
+              storeNames: excelSplit(district["门店名字"] || district["门店名称"] || district["门店名单"])
+            }))
+        };
+      });
+    const companyKr = krRows
+      .filter((r) => excelText(r.period_type) === view)
+      .map((r) => ({
+        code: excelText(r["KR编号"]),
+        title: excelText(r["KR名称"]),
+        target: excelText(r["目标"]),
+        done: excelText(r["完成"]),
+        rate: excelNum(r["完成率_%"]),
+        owner: excelText(r["负责人"]),
+        support: excelText(r["支持部门"]),
+        risk: excelText(r["风险"]),
+        action: excelText(r["关键行动"]),
+        color: excelText(r["颜色"], excelColorByRate(excelNum(r["完成率_%"])))
+      }));
+    const goal = cities.reduce((sum, city) => sum + city.goal, 0);
+    const completed = cities.reduce((sum, city) => sum + city.completed, 0);
+    const time = cities.length ? average(cities.map((city) => city.time)) : 0;
+    const rate = goal ? percent(completed, goal) : 0;
+    views[view] = {
+      label: { month: "月", week: "周", day: "日" }[view],
+      mission: {
+        time,
+        goal: Math.round(goal * 100) / 100,
+        completed: Math.round(completed * 100) / 100,
+        rate,
+        status: rate >= time ? "良好" : rate >= time - 10 ? "预警" : "滞后",
+        gap: Math.round((rate - time) * 10) / 10
+      },
+      cities,
+      companyKr
+    };
+  }
+
+  return {
+    meta: {
+      company: excelText(meta.company, "小铁台球教培"),
+      period: excelText(meta.period, "2026年7月1日 - 7月31日"),
+      updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+      totalGoal: excelNum(meta.totalGoal, 85),
+      syncMode: "本地Excel上传"
+    },
+    views,
+    departments: departmentRows.map(excelOkrRow("部门")),
+    projects: projectRows.map(excelOkrRow("项目")),
+    people: [],
+    peopleDetails: personRows,
+    conversionFunnel: excelFunnel(funnelRows)
+  };
+}
+
+function excelRows(matrix) {
+  if (!Array.isArray(matrix)) return [];
+  const headerIndex = matrix.findIndex((row) => row && row.some((cell) => excelIsHeader(cell)));
+  if (headerIndex < 0) return [];
+  const headers = matrix[headerIndex].map((value) => excelText(value));
+  return matrix.slice(headerIndex + 1)
+    .filter((row) => row && row.some((cell) => excelText(cell) !== ""))
+    .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]).filter(([header]) => header)));
+}
+
+function excelIsHeader(value) {
+  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "区域"].includes(excelText(value));
+}
+
+function excelText(value, fallback = "") {
+  if (value == null) return fallback;
+  return String(value).trim() || fallback;
+}
+
+function excelNum(value, fallback = 0) {
+  if (value == null || value === "") return fallback;
+  const numeric = Number(String(value).replace(/,/g, "").replace("%", ""));
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function excelSplit(value) {
+  return excelText(value).split(/[、,，；;|\n]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function excelStoreItems(value) {
+  return excelSplit(value).map((item) => {
+    const parts = item.split(/[:：｜|/／-]/).map((part) => part.trim()).filter(Boolean);
+    return parts.length >= 2 ? { district: parts[0], name: parts.slice(1).join("-") } : { district: "", name: item };
+  });
+}
+
+function excelChannelMetrics(row, prefix) {
+  const monthTrialLessons = excelNum(row[`${prefix}月度体验课数`] || row[`${prefix}_月度体验课数`]);
+  const monthDeals = excelNum(row[`${prefix}月度成交数`] || row[`${prefix}_月度成交数`]);
+  const yesterdayTrialLessons = excelNum(row[`${prefix}昨日体验课数`] || row[`${prefix}_昨日体验课数`]);
+  const yesterdayDeals = excelNum(row[`${prefix}昨日成交数`] || row[`${prefix}_昨日成交数`]);
+  return {
+    monthTrialLessons,
+    monthDeals,
+    monthConversionRate: excelNum(row[`${prefix}月度转化率_%`] || row[`${prefix}_月度转化率_%`], percent(monthDeals, monthTrialLessons)),
+    monthRenewals: excelNum(row[`${prefix}月度续课数`] || row[`${prefix}_月度续课数`]),
+    yesterdayTrialLessons,
+    yesterdayDeals,
+    yesterdayConversionRate: excelNum(row[`${prefix}昨日转化率_%`] || row[`${prefix}_昨日转化率_%`], percent(yesterdayDeals, yesterdayTrialLessons)),
+    yesterdayRenewals: excelNum(row[`${prefix}昨日续课数`] || row[`${prefix}_昨日续课数`])
+  };
+}
+
+function excelCoach(row) {
+  return {
+    name: excelText(row["教练"]),
+    level: excelText(row["教练等级"], "未定级"),
+    district: excelText(row["区域"]),
+    storeNames: excelSplit(row["服务门店"] || row["门店名字"] || row["门店名称"] || row["门店名单"]),
+    cumulativeTrialLessons: excelNum(row["累计体验课"] || row["累计体验课数"] || row["体验课数"]),
+    cumulativeDeals: excelNum(row["累计转化"] || row["累计成交"] || row["累计成交数"] || row["体验课成交数"]),
+    cumulativeConversionRate: excelNum(row["累计转化率_%"] || row["累计成交率_%"] || row["成交率_%"]),
+    monthTrialLessons: excelNum(row["月度体验课"] || row["月度体验课数"] || row["本月体验课数"]),
+    monthDeals: excelNum(row["月度转化"] || row["月度成交"] || row["月度成交数"] || row["本月成交数"]),
+    monthConversionRate: excelNum(row["月度转化率_%"] || row["月度成交率_%"] || row["本月转化率_%"]),
+    yesterdayTrialLessons: excelNum(row["昨日体验课"] || row["昨日体验课数"]),
+    yesterdayDeals: excelNum(row["昨日成交"] || row["昨日成交数"] || row["昨日转化"]),
+    yesterdayConversionRate: excelNum(row["昨日转化率_%"] || row["昨日成交率_%"]),
+    users: excelNum(row["用户数"]),
+    renewals: excelNum(row["续课数"]),
+    renewalRate: excelNum(row["续客率_%"])
+  };
+}
+
+function excelOkrRow(nameKey) {
+  return (row) => ({
+    name: excelText(row[nameKey]),
+    objective: excelText(row["Objective"]),
+    owner: excelText(row["负责人"]),
+    target: excelText(row["目标值"]),
+    done: excelText(row["实际完成"]),
+    unit: excelText(row["单位"]),
+    rate: excelNum(row["完成率_%"]),
+    risk: excelText(row["风险/卡点"]),
+    action: excelText(row["下一步具体动作"]),
+    dueDate: excelText(row["截止日期"]),
+    krs: excelText(row["关键KR"]).split(/[；;|\n]+/).map((item) => item.trim()).filter(Boolean)
+  });
+}
+
+function excelFunnel(rows) {
+  return rows
+    .filter((row) => excelText(row["环节"]))
+    .sort((a, b) => excelNum(a["排序"], 999) - excelNum(b["排序"], 999))
+    .map((row) => ({
+      name: excelText(row["环节"]),
+      value: excelText(row["数值"]),
+      note: excelText(row["副标题"] || row["说明"] || row["备注"] || row["辅助指标"]),
+      channels: [
+        ["美团", row["美团"]],
+        ["抖音", row["抖音"]],
+        ["私域", row["私域"]],
+        ["其他", row["其他"]]
+      ].filter(([, value]) => excelText(value)).map(([name, value]) => ({ name, value: excelText(value) }))
+    }));
+}
+
+function excelColorByRate(rate) {
+  if (rate < 35) return "#ff4d5e";
+  if (rate < 55) return "#ffb11a";
+  return "#28e681";
+}
+
+async function exportPng() {
+  if (!window.html2canvas) {
+    alert("PNG导出组件还没加载完成，请刷新页面后再试。");
+    return;
+  }
+  els.dockMenu.classList.remove("open");
+  const canvas = await html2canvas(document.querySelector(".cockpit"), {
+    backgroundColor: "#020814",
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    useCORS: true
+  });
+  downloadFile(canvas.toDataURL("image/png"), timestampName("小铁台球经营看板", "png"));
+}
+
+async function exportPdf() {
+  if (!window.html2canvas || !window.jspdf?.jsPDF) {
+    window.print();
+    return;
+  }
+  els.dockMenu.classList.remove("open");
+  const canvas = await html2canvas(document.querySelector(".cockpit"), {
+    backgroundColor: "#020814",
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    useCORS: true
+  });
+  const image = canvas.toDataURL("image/jpeg", 0.95);
+  const pdf = new jspdf.jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height] });
+  pdf.addImage(image, "JPEG", 0, 0, canvas.width, canvas.height);
+  pdf.save(timestampName("小铁台球经营报告", "pdf"));
+}
+
 document.querySelectorAll("[data-view]").forEach(button => {
   button.addEventListener("click", () => {
     activeView = button.dataset.view;
@@ -1086,10 +1402,12 @@ document.querySelector("#saveEndpoint").addEventListener("click", () => {
   }
   loadRemoteData(true);
 });
-document.querySelector("#pngButton").addEventListener("click", () => alert("浏览器可用系统截图导出。线上版建议接入 html2canvas 生成PNG。"));
-document.querySelector("#pdfButton").addEventListener("click", () => window.print());
-document.querySelector("#templateButton").addEventListener("click", () => alert("模板字段见 README.md：公司KR、城市经营、部门OKR、项目OKR、教练经营、转化漏斗。"));
-document.querySelector("#uploadButton").addEventListener("click", () => alert("Vercel线上版默认读取 /api/dingtalk-data。钉钉同步异常时，可在系统设置里临时填写公开 HTTPS JSON 地址。"));
+document.querySelector("#pngButton").addEventListener("click", exportPng);
+document.querySelector("#pdfButton").addEventListener("click", exportPdf);
+document.querySelector("#templateButton").addEventListener("click", () => {
+  downloadFile("./小铁台球经营仓数据模板.xlsx", "小铁台球经营仓数据模板.xlsx");
+});
+document.querySelector("#uploadButton").addEventListener("click", uploadExcelData);
 
 render();
 loadRemoteData(false);
