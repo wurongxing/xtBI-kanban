@@ -863,7 +863,7 @@ button {
   padding: 12px;
   border-radius: 8px;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--city-color) 24%, transparent), rgba(4, 20, 39, 0.82));
+    linear-gradient(135deg, rgba(0, 102, 255, 0.22), rgba(4, 20, 39, 0.82));
   border: 1px solid rgba(255,255,255,0.08);
 }
 .district-title {
@@ -912,9 +912,9 @@ button {
   padding: 13px;
   border-radius: 8px;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--okr-accent, var(--cyan)) 18%, transparent), rgba(3, 21, 38, 0.9) 46%),
+    linear-gradient(135deg, rgba(52, 231, 228, 0.16), rgba(3, 21, 38, 0.9) 46%),
     rgba(3, 21, 38, 0.82);
-  border: 1px solid color-mix(in srgb, var(--okr-accent, var(--cyan)) 34%, rgba(255,255,255,0.06));
+  border: 1px solid rgba(52, 231, 228, 0.26);
   box-shadow: inset 3px 0 0 var(--okr-accent, var(--cyan));
 }
 .okr-card-head {
@@ -1109,12 +1109,23 @@ button {
 .dock-menu button:hover { background: rgba(255,255,255,0.08); }
 
 body.exporting .data-dock { display: none; }
+body.exporting {
+  width: max-content;
+  min-width: 1440px;
+  overflow: visible;
+}
 body.exporting .coach-table-wrap {
   overflow: visible;
 }
 body.exporting .cockpit {
   width: max-content;
   min-width: 1440px;
+}
+body.exporting .city-grid,
+body.exporting .detail-grid,
+body.exporting .okr-cards,
+body.exporting .kr-detail-grid {
+  overflow: visible;
 }
 
 dialog {

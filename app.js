@@ -1015,6 +1015,39 @@ function timestampName(prefix, ext) {
   return `${prefix}-${stamp}.${ext}`;
 }
 
+async function captureCurrentPageCanvas() {
+  document.body.classList.add("exporting");
+  window.scrollTo(0, 0);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const width = Math.ceil(Math.max(
+    document.body.scrollWidth,
+    document.body.offsetWidth,
+    document.documentElement.clientWidth,
+    document.documentElement.scrollWidth,
+    document.documentElement.offsetWidth,
+    window.innerWidth
+  ));
+  const height = Math.ceil(Math.max(
+    document.body.scrollHeight,
+    document.body.offsetHeight,
+    document.documentElement.clientHeight,
+    document.documentElement.scrollHeight,
+    document.documentElement.offsetHeight,
+    window.innerHeight
+  ));
+  return html2canvas(document.body, {
+    backgroundColor: "#020814",
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    useCORS: true,
+    width,
+    height,
+    windowWidth: width,
+    windowHeight: height,
+    scrollX: 0,
+    scrollY: 0
+  });
+}
+
 async function uploadExcelData() {
   if (!window.XLSX) {
     alert("Excel解析组件还没加载完成，请刷新页面后再试。");
@@ -1293,21 +1326,7 @@ async function exportPng() {
   }
   els.dockMenu.classList.remove("open");
   try {
-    document.body.classList.add("exporting");
-    const target = document.querySelector(".cockpit");
-    const width = Math.max(target.scrollWidth, document.documentElement.scrollWidth, window.innerWidth);
-    const height = Math.max(target.scrollHeight, document.documentElement.scrollHeight, window.innerHeight);
-    const canvas = await html2canvas(target, {
-      backgroundColor: "#020814",
-      scale: Math.min(window.devicePixelRatio || 1, 2),
-      useCORS: true,
-      width,
-      height,
-      windowWidth: width,
-      windowHeight: height,
-      scrollX: 0,
-      scrollY: 0
-    });
+    const canvas = await captureCurrentPageCanvas();
     downloadFile(canvas.toDataURL("image/png"), timestampName("小铁台球经营看板", "png"));
   } catch (error) {
     alert(`PNG导出失败：${error.message}`);
@@ -1323,21 +1342,7 @@ async function exportPdf() {
   }
   els.dockMenu.classList.remove("open");
   try {
-    document.body.classList.add("exporting");
-    const target = document.querySelector(".cockpit");
-    const width = Math.max(target.scrollWidth, document.documentElement.scrollWidth, window.innerWidth);
-    const height = Math.max(target.scrollHeight, document.documentElement.scrollHeight, window.innerHeight);
-    const canvas = await html2canvas(target, {
-      backgroundColor: "#020814",
-      scale: Math.min(window.devicePixelRatio || 1, 2),
-      useCORS: true,
-      width,
-      height,
-      windowWidth: width,
-      windowHeight: height,
-      scrollX: 0,
-      scrollY: 0
-    });
+    const canvas = await captureCurrentPageCanvas();
     const image = canvas.toDataURL("image/jpeg", 0.95);
     const pdf = new jspdf.jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height] });
     pdf.addImage(image, "JPEG", 0, 0, canvas.width, canvas.height);
