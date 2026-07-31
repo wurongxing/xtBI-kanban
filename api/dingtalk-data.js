@@ -122,6 +122,9 @@ function transformWorkbook(sheets) {
   const departmentRows = rowsFromMatrix(sheets["六部门OKR"]);
   const projectRows = rowsFromMatrix(sheets["六项目OKR"]);
   const personRows = rowsFromMatrix(sheets["个人OKR"]);
+  const coachRows = rowsFromMatrix(sheets["教练经营"]);
+  const districtRows = rowsFromMatrix(sheets["城区分布"]);
+  const funnelRows = rowsFromMatrix(sheets["转化漏斗"]);
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
   const views = {};
 
@@ -139,7 +142,72 @@ function transformWorkbook(sheets) {
         gap: num(r["差距_万元"]),
         forecast: num(r["预计月底_万元"]),
         needed: num(r["还需完成_万元"]),
-        status: text(r["状态"], "预警")
+        status: text(r["状态"], "预警"),
+        monthlyGoal: num(r["月度目标_万元"], num(r["目标营收_万元"])),
+        monthlyCompleted: num(r["月度完成_万元"], num(r["实际完成_万元"])),
+        weekGoal: num(r["周目标_万元"], num(r["月度目标_万元"], num(r["目标营收_万元"])) / 4),
+        weekCompleted: num(r["周完成_万元"]),
+        yesterdayCompleted: num(r["昨日完成_万元"]),
+        courseUsersTotal: num(r["正课总用户数"]),
+        courseUsersExpiring: num(r["到期用户数"]),
+        courseUsersExpiringMonth: num(r["本月到期用户数"]),
+        trialLessonsTotal: num(r["总体验课数"]),
+        trialLessonsMonth: num(r["本月体验课数"]),
+        trialDeals: num(r["体验课成交数"]),
+        coachesTotal: num(r["总教练数"]),
+        coachesNew: num(r["新增教练数"]),
+        coachesNewMonth: num(r["月度新增教练数"], num(r["新增教练数"])),
+        coachesNewYesterday: num(r["昨日新增教练数"]),
+        coachesNewMonthNames: splitNames(r["月度新增教练名字"] || r["月度新增教练名称"] || r["本月新增教练名字"] || r["本月新增教练"]),
+        coachesNewYesterdayNames: splitNames(r["昨日新增教练名字"] || r["昨日新增教练名称"] || r["昨天新增教练名字"] || r["昨日新增教练"]),
+        storesTotal: num(r["入驻门店数"]),
+        storesPaidTotal: num(r["付费入驻门店数"]),
+        storesFreeTotal: num(r["免费入驻门店数"]),
+        storesNew: num(r["新增门店数"]),
+        storesNewPaid: num(r["月度新签付费门店数"] || r["新签付费门店数"]),
+        storesNewFree: num(r["月度新签免费门店数"] || r["新签免费门店数"]),
+        storesNewMonth: num(r["月度新增门店数"], num(r["新增门店数"])),
+        storesNewYesterday: num(r["昨日新增门店数"]),
+        storesNewMonthList: splitStoreItems(r["月度新增门店所在区及名字"] || r["月度新增门店"] || r["本月新增门店所在区及名字"] || r["本月新增门店"]),
+        storesNewYesterdayList: splitStoreItems(r["昨日新增门店所在区及名字"] || r["昨日新增门店"] || r["昨天新增门店所在区及名字"]),
+        newSignedStores: num(r["新签门店数"], num(r["新增门店数"])),
+        channels: {
+          user: channelMetrics(r, "用户端"),
+          coach: channelMetrics(r, "教练端"),
+          store: channelMetrics(r, "门店端")
+        },
+        coaches: coachRows
+          .filter((coach) => text(coach.period_type, view) === view && text(coach["城市"]) === text(r["城市"]))
+          .map((coach) => ({
+            name: text(coach["教练"]),
+            level: text(coach["教练等级"], "未定级"),
+            district: text(coach["区域"]),
+            storeNames: splitNames(coach["服务门店"] || coach["门店名字"] || coach["门店名称"] || coach["门店名单"]),
+            cumulativeTrialLessons: num(coach["累计体验课"] || coach["累计体验课数"] || coach["体验课数"]),
+            cumulativeDeals: num(coach["累计转化"] || coach["累计成交"] || coach["累计成交数"] || coach["体验课成交数"]),
+            cumulativeConversionRate: num(coach["累计转化率_%"] || coach["累计成交率_%"] || coach["成交率_%"]),
+            monthTrialLessons: num(coach["月度体验课"] || coach["月度体验课数"] || coach["本月体验课数"]),
+            monthDeals: num(coach["月度转化"] || coach["月度成交"] || coach["月度成交数"] || coach["本月成交数"]),
+            monthConversionRate: num(coach["月度转化率_%"] || coach["月度成交率_%"] || coach["本月转化率_%"]),
+            yesterdayTrialLessons: num(coach["昨日体验课"] || coach["昨日体验课数"]),
+            yesterdayDeals: num(coach["昨日成交"] || coach["昨日成交数"] || coach["昨日转化"]),
+            yesterdayConversionRate: num(coach["昨日转化率_%"] || coach["昨日成交率_%"]),
+            trialLessons: num(coach["月度体验课"] || coach["月度体验课数"] || coach["体验课数"]),
+            trialDeals: num(coach["月度转化"] || coach["月度成交"] || coach["体验课成交数"]),
+            conversionRate: num(coach["月度转化率_%"] || coach["成交率_%"]),
+            users: num(coach["用户数"]),
+            renewals: num(coach["续课数"]),
+            renewalRate: num(coach["续客率_%"]),
+          })),
+        districts: districtRows
+          .filter((district) => text(district.period_type, view) === view && text(district["城市"]) === text(r["城市"]))
+          .map((district) => ({
+            name: text(district["区域"]),
+            coaches: num(district["教练数"]),
+            coachNames: splitNames(district["教练名字"] || district["教练名称"] || district["教练名单"]),
+            stores: num(district["门店数"]),
+            storeNames: splitNames(district["门店名字"] || district["门店名称"] || district["门店名单"])
+          }))
       }));
 
     const companyKr = krRows
@@ -228,7 +296,8 @@ function transformWorkbook(sheets) {
       risk: text(r["风险/卡点"]),
       action: text(r["下一步具体动作"]),
       dueDate: text(r["截止日期"])
-    }))
+    })),
+    conversionFunnel: buildConversionFunnel(funnelRows)
   };
 }
 
@@ -249,7 +318,7 @@ function rowsFromMatrix(matrix) {
 }
 
 function isHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID"].includes(text(value));
+  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "区域"].includes(text(value));
 }
 
 function summarizePeople(rows) {
@@ -291,6 +360,57 @@ function summarizePeople(rows) {
 
 function splitKrs(value) {
   return text(value).split(/[；;|\n]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function channelMetrics(row, prefix) {
+  const monthTrialLessons = num(row[`${prefix}月度体验课数`] || row[`${prefix}_月度体验课数`]);
+  const monthDeals = num(row[`${prefix}月度成交数`] || row[`${prefix}_月度成交数`]);
+  const yesterdayTrialLessons = num(row[`${prefix}昨日体验课数`] || row[`${prefix}_昨日体验课数`]);
+  const yesterdayDeals = num(row[`${prefix}昨日成交数`] || row[`${prefix}_昨日成交数`]);
+  return {
+    monthTrialLessons,
+    monthDeals,
+    monthConversionRate: num(row[`${prefix}月度转化率_%`] || row[`${prefix}_月度转化率_%`], percentValue(monthDeals, monthTrialLessons)),
+    monthRenewals: num(row[`${prefix}月度续课数`] || row[`${prefix}_月度续课数`]),
+    yesterdayTrialLessons,
+    yesterdayDeals,
+    yesterdayConversionRate: num(row[`${prefix}昨日转化率_%`] || row[`${prefix}_昨日转化率_%`], percentValue(yesterdayDeals, yesterdayTrialLessons)),
+    yesterdayRenewals: num(row[`${prefix}昨日续课数`] || row[`${prefix}_昨日续课数`])
+  };
+}
+
+function percentValue(done, total) {
+  return total ? round((done / total) * 100, 1) : 0;
+}
+
+function splitNames(value) {
+  return text(value).split(/[、,，；;|\n]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function splitStoreItems(value) {
+  return splitNames(value).map((item) => {
+    const parts = item.split(/[:：｜|/／-]/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) return { district: parts[0], name: parts.slice(1).join("-") };
+    return { district: "", name: item };
+  });
+}
+
+function buildConversionFunnel(rows) {
+  const sorted = rows
+    .filter((r) => text(r["环节"]))
+    .sort((a, b) => num(a["排序"], 999) - num(b["排序"], 999));
+  if (!sorted.length) return [];
+  return sorted.map((r) => ({
+    name: text(r["环节"]),
+    value: text(r["数值"]),
+    note: text(r["副标题"] || r["说明"] || r["备注"] || r["辅助指标"]),
+    channels: [
+      ["美团", r["美团"]],
+      ["抖音", r["抖音"]],
+      ["私域", r["私域"]],
+      ["其他", r["其他"]]
+    ].filter(([, value]) => text(value)).map(([name, value]) => ({ name, value: text(value) }))
+  }));
 }
 
 function parseJsonEnv(name) {
