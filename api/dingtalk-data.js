@@ -10,14 +10,11 @@ const DEFAULT_REQUIRED_SHEETS = [
   "公司KR",
   "六部门OKR",
   "六项目OKR",
-  "个人OKR",
   "门店明细",
   "教练档案",
   "教练门店关系",
   "体验课流水",
   "续课流水",
-  "教练经营",
-  "城区分布",
   "转化漏斗",
   "经营重点"
 ];
@@ -40,9 +37,11 @@ module.exports = async function handler(req, res) {
   }
 
   const startedAt = Date.now();
+  const deadlineAt = startedAt + clampInt(process.env.DINGTALK_FUNCTION_BUDGET_MS, 8000, 28000, 24000);
   try {
-    const sheets = await fetchAllSheets();
+    const sheets = await fetchAllSheets(deadlineAt);
     const data = transformWorkbook(sheets);
+    data.meta.durationMs = Date.now() - startedAt;
     res.status(200).json(data);
   } catch (error) {
     res.status(500).json({
@@ -61,17 +60,21 @@ function setCors(res) {
   res.setHeader("cache-control", "no-store");
 }
 
-async function fetchAllSheets() {
-  const token = await getDingTalkAccessToken();
-  const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
+async function fetchAllSheets(deadlineAt) {
+  const token = await getDingTalkAccessToken(deadlineAt);
+  const { mapping, liveKnown, warnings: mappingWarnings = [] } = await resolveWorkbookSheetMapping(token, deadlineAt);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
   const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 2);
-  const warnings = [];
+  const warnings = [...mappingWarnings];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
     const sheetId = resolveSheetId(name, mapping, liveKnown);
     if (!sheetId) return [name, []];
+    if (isNearDeadline(deadlineAt)) {
+      warnings.push({ sheet: name, message: "同步函数接近 Vercel 超时上限，已跳过该 Sheet。" });
+      return [name, []];
+    }
     try {
-      return [name, await fetchSheetValues(sheetId, token, name)];
+      return [name, await fetchSheetValues(sheetId, token, name, deadlineAt)];
     } catch (error) {
       warnings.push({ sheet: name, message: error.message });
       return [name, []];
@@ -82,8 +85,12 @@ async function fetchAllSheets() {
   return sheets;
 }
 
-async function resolveWorkbookSheetMapping(token) {
-  const liveMapping = await fetchWorkbookSheetMapping(token).catch(() => ({}));
+async function resolveWorkbookSheetMapping(token, deadlineAt) {
+  const mappingWarnings = [];
+  const liveMapping = await fetchWorkbookSheetMapping(token, deadlineAt).catch((error) => {
+    mappingWarnings.push({ sheet: "__sheetList", message: error.message });
+    return {};
+  });
   if (Object.keys(liveMapping).length) {
     return { mapping: liveMapping, liveKnown: true };
   }
@@ -92,16 +99,21 @@ async function resolveWorkbookSheetMapping(token) {
     ? parseOptionalJsonEnv("DINGTALK_SHEETS", {})
     : {};
   if (Object.keys(envMapping).length) {
-    return { mapping: envMapping, liveKnown: false };
+    return { mapping: envMapping, liveKnown: false, warnings: mappingWarnings };
   }
 
-  return {
-    mapping: Object.fromEntries(allKnownSheetNames().map((name) => [name, name])),
-    liveKnown: false
-  };
+  if (process.env.DINGTALK_FALLBACK_TO_NAME_IDS === "true") {
+    return {
+      mapping: Object.fromEntries(allKnownSheetNames().map((name) => [name, name])),
+      liveKnown: false,
+      warnings: mappingWarnings
+    };
+  }
+
+  throw new Error(`无法获取钉钉工作表列表，已停止继续用中文表名盲读，避免 Vercel 504。${mappingWarnings[0]?.message || ""}`);
 }
 
-async function fetchWorkbookSheetMapping(token) {
+async function fetchWorkbookSheetMapping(token, deadlineAt) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const templates = process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE
@@ -117,7 +129,7 @@ async function fetchWorkbookSheetMapping(token) {
       const json = await requestJson(url, {
         method: "GET",
         headers: { "x-acs-dingtalk-access-token": token }
-      }, "获取钉钉工作表列表失败");
+      }, "获取钉钉工作表列表失败", deadlineAt);
       return Object.fromEntries(extractSheetList(json)
         .map((sheet) => [text(sheet.name || sheet.sheetName || sheet.title || sheet.id), text(sheet.id || sheet.sheetId || sheet.name || sheet.title)])
         .filter(([name, id]) => name && id));
@@ -183,7 +195,7 @@ function parseSheetNameList(raw) {
   return String(raw).split(/[,\n，；;]+/).map((item) => item.trim()).filter(Boolean);
 }
 
-async function fetchSheetValues(sheetId, token, sheetName) {
+async function fetchSheetValues(sheetId, token, sheetName, deadlineAt) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const range = encodeURIComponent(rangeForSheet(sheetName));
@@ -198,19 +210,19 @@ async function fetchSheetValues(sheetId, token, sheetName) {
   const json = await requestJsonWithRetry(url, {
     method: "GET",
     headers: { "x-acs-dingtalk-access-token": token }
-  }, `读取钉钉表格失败 sheetId=${sheetId}`);
+  }, `读取钉钉表格失败 sheetId=${sheetId}`, deadlineAt);
   return extractMatrix(json);
 }
 
-async function requestJsonWithRetry(url, options, label) {
+async function requestJsonWithRetry(url, options, label, deadlineAt) {
   const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 3, 2);
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await requestJson(url, options, label);
+      return await requestJson(url, options, label, deadlineAt);
     } catch (error) {
       lastError = error;
-      if (!/HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504|请求超过/.test(error.message) || attempt === attempts) {
+      if (isNearDeadline(deadlineAt) || !/HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504|请求超过/.test(error.message) || attempt === attempts) {
         throw error;
       }
       await delay(500 * attempt);
@@ -267,21 +279,27 @@ function appendQuery(url, params) {
   return parsed.toString();
 }
 
-async function getDingTalkAccessToken() {
+async function getDingTalkAccessToken(deadlineAt) {
   const appKey = requireEnv("DINGTALK_APP_KEY");
   const appSecret = requireEnv("DINGTALK_APP_SECRET");
   const json = await requestJson("https://api.dingtalk.com/v1.0/oauth2/accessToken", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ appKey, appSecret })
-  }, "获取钉钉 accessToken 失败");
+  }, "获取钉钉 accessToken 失败", deadlineAt);
   if (!json.accessToken) throw new Error(`钉钉 token 响应缺少 accessToken: ${JSON.stringify(json)}`);
   return json.accessToken;
 }
 
-function requestJson(url, options, label) {
+function requestJson(url, options, label, deadlineAt) {
   return new Promise((resolve, reject) => {
-    const timeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 9000);
+    if (isNearDeadline(deadlineAt)) {
+      reject(new Error(`${label}: 同步函数接近超时上限，已停止新请求`));
+      return;
+    }
+    const configuredTimeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 6000);
+    const remainingMs = deadlineAt ? Math.max(1000, deadlineAt - Date.now() - 1200) : configuredTimeoutMs;
+    const timeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     const req = https.request(url, options, (res) => {
       let body = "";
       res.setEncoding("utf8");
@@ -305,6 +323,10 @@ function requestJson(url, options, label) {
     if (options.body) req.write(options.body);
     req.end();
   });
+}
+
+function isNearDeadline(deadlineAt) {
+  return Boolean(deadlineAt && Date.now() > deadlineAt - 1500);
 }
 
 async function mapLimit(items, limit, worker) {
