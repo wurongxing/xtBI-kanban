@@ -65,7 +65,7 @@ async function fetchAllSheets() {
   const token = await getDingTalkAccessToken();
   const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
-  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 4);
+  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 2);
   const warnings = [];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
     const sheetId = resolveSheetId(name, mapping, liveKnown);
@@ -73,7 +73,6 @@ async function fetchAllSheets() {
     try {
       return [name, await fetchSheetValues(sheetId, token, name)];
     } catch (error) {
-      if (isCriticalSheet(name)) throw error;
       warnings.push({ sheet: name, message: error.message });
       return [name, []];
     }
@@ -174,10 +173,6 @@ function requiredSheetNames(mapping, liveKnown) {
     .filter((name) => resolveSheetId(name, mapping, liveKnown));
 }
 
-function isCriticalSheet(name) {
-  return ["双城经营"].includes(name);
-}
-
 function parseSheetNameList(raw) {
   try {
     const parsed = JSON.parse(raw);
@@ -200,20 +195,42 @@ async function fetchSheetValues(sheetId, token, sheetName) {
     .replace("{range}", range);
   const url = appendQuery(baseUrl, { operatorId });
 
-  const json = await requestJson(url, {
+  const json = await requestJsonWithRetry(url, {
     method: "GET",
     headers: { "x-acs-dingtalk-access-token": token }
   }, `读取钉钉表格失败 sheetId=${sheetId}`);
   return extractMatrix(json);
 }
 
+async function requestJsonWithRetry(url, options, label) {
+  const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 3, 2);
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await requestJson(url, options, label);
+    } catch (error) {
+      lastError = error;
+      if (!/HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504|请求超过/.test(error.message) || attempt === attempts) {
+        throw error;
+      }
+      await delay(500 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function rangeForSheet(sheetName) {
   const ranges = parseOptionalJsonEnv("DINGTALK_RANGES", {});
   if (ranges[sheetName]) return clampRangeCells(ranges[sheetName]);
+  if (sheetName === "双城经营") return "A1:Z20";
   if (["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"].includes(sheetName)) {
     return clampRangeCells(process.env.DINGTALK_DETAIL_RANGE || "A1:Z1000");
   }
-  return clampRangeCells(process.env.DINGTALK_RANGE || "A1:Z500");
+  return clampRangeCells(process.env.DINGTALK_RANGE || "A1:Z80");
 }
 
 function clampRangeCells(range) {
@@ -339,7 +356,9 @@ function transformWorkbook(sheets) {
   const views = {};
 
   for (const view of ["month", "week", "day"]) {
-    const cities = cityRows
+    const scopedCityRows = cityRows.filter((r) => r.period_type === view);
+    const rowsForView = scopedCityRows.length ? scopedCityRows : fallbackCityRows(view, autoModel[view]);
+    const cities = rowsForView
       .filter((r) => r.period_type === view)
       .map((r) => buildCityViewRow(r, view, autoModel[view]?.[text(r["城市"])], coachRows, districtRows));
 
@@ -493,6 +512,25 @@ function buildCityViewRow(r, view, auto, coachRows, districtRows) {
       .filter((district) => text(district.period_type, view) === view && text(district["城市"]) === cityName)
       .map(districtSummaryFromRow)
   };
+}
+
+function fallbackCityRows(view, autoView = {}) {
+  const names = Object.keys(autoView).length ? Object.keys(autoView) : ["深圳", "广州"];
+  return names.map((city) => ({
+    period_type: view,
+    "城市": city,
+    "目标营收_万元": 0,
+    "月度目标_万元": 0,
+    "周目标_万元": 0,
+    "时间进度_%": view === "day" ? 100 : view === "week" ? 100 : monthProgressPercent(),
+    "状态": "待设目标"
+  }));
+}
+
+function monthProgressPercent() {
+  const now = shanghaiDateParts();
+  const days = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();
+  return round((now.day / days) * 100, 1);
 }
 
 function coachSummaryFromRow(coach) {
