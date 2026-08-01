@@ -20,9 +20,11 @@ const DEFAULT_REQUIRED_SHEETS = [
 ];
 const CORE_DATA_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"];
 const SHEET_ALIASES = {
+  "公司KR": ["公司OKR", "公司KRs", "公司目标"],
+  "体验课流水": ["体验课订单", "体验课数据", "体验课明细"],
   "续课流水": ["正课流水", "正课订单", "正课数据", "续课数据"],
   "六项目OKR": ["项目进度", "六项目", "项目OKR"],
-  "六部门OKR": ["总部运营中心OKR", "部门OKR", "六部门"],
+  "六部门OKR": ["总部运营中心OKR", "部门OKR", "六部门", "部门目标"],
   "经营重点": ["运营提醒", "经营提醒", "风险预警"]
 };
 const MONEY_KEYS = ["金额", "实付金额", "支付金额", "订单金额", "营收", "收入", "体验课金额", "正课金额"];
@@ -202,20 +204,26 @@ function parseSheetNameList(raw) {
 async function fetchSheetValues(sheetId, token, sheetName, deadlineAt) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
-  const range = encodeURIComponent(rangeForSheet(sheetName));
   const template = process.env.DINGTALK_READ_URL_TEMPLATE ||
     "https://api.dingtalk.com/v1.0/doc/workbooks/{workbookId}/sheets/{sheetId}/ranges/{range}";
-  const baseUrl = template
-    .replace("{workbookId}", encodeURIComponent(workbookId))
-    .replace("{sheetId}", encodeURIComponent(sheetId))
-    .replace("{range}", range);
-  const url = appendQuery(baseUrl, { operatorId });
+  const chunks = chunkRangeForDingTalk(rangeForSheet(sheetName));
+  const matrices = [];
 
-  const json = await requestJsonWithRetry(url, {
-    method: "GET",
-    headers: { "x-acs-dingtalk-access-token": token }
-  }, `读取钉钉表格失败 sheetId=${sheetId}`, deadlineAt);
-  return extractMatrix(json);
+  for (const range of chunks) {
+    const baseUrl = template
+      .replace("{workbookId}", encodeURIComponent(workbookId))
+      .replace("{sheetId}", encodeURIComponent(sheetId))
+      .replace("{range}", encodeURIComponent(range));
+    const url = appendQuery(baseUrl, { operatorId });
+
+    const json = await requestJsonWithRetry(url, {
+      method: "GET",
+      headers: { "x-acs-dingtalk-access-token": token }
+    }, `读取钉钉表格失败 sheetId=${sheetId} range=${range}`, deadlineAt);
+    matrices.push(extractMatrix(json));
+  }
+
+  return matrices.flat();
 }
 
 async function requestJsonWithRetry(url, options, label, deadlineAt) {
@@ -241,31 +249,53 @@ function delay(ms) {
 
 function rangeForSheet(sheetName) {
   const ranges = parseOptionalJsonEnv("DINGTALK_RANGES", {});
-  if (ranges[sheetName]) return clampRangeCells(ranges[sheetName]);
+  if (ranges[sheetName]) return normalizeRange(ranges[sheetName]);
   if (sheetName === "双城经营") return "A1:Z20";
   if (["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"].includes(sheetName)) {
-    return clampRangeCells(process.env.DINGTALK_DETAIL_RANGE || "A1:Z1000");
+    return normalizeRange(process.env.DINGTALK_DETAIL_RANGE || "A1:Z1000");
   }
-  return clampRangeCells(process.env.DINGTALK_RANGE || "A1:Z80");
+  return normalizeRange(process.env.DINGTALK_RANGE || "A1:Z80");
 }
 
-function clampRangeCells(range) {
+function normalizeRange(range) {
   const raw = String(range || "A1:Z500").trim();
-  const match = raw.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
-  if (!match) return raw;
+  const parsed = parseA1Range(raw);
+  if (!parsed) return raw;
+  return formatA1Range(parsed.startCol, parsed.startRow, parsed.endCol, parsed.endRow);
+}
 
+function chunkRangeForDingTalk(range) {
+  const parsed = parseA1Range(range);
+  if (!parsed) return [range];
+  const columns = Math.max(1, Math.abs(columnIndex(parsed.endCol) - columnIndex(parsed.startCol)) + 1);
+  const apiMaxCells = clampInt(process.env.DINGTALK_API_MAX_CELLS, 1, 30000, 30000);
+  const maxRowsPerRequest = Math.max(1, Math.floor(apiMaxCells / columns));
+  const chunks = [];
+  for (let row = parsed.startRow; row <= parsed.endRow; row += maxRowsPerRequest) {
+    chunks.push(formatA1Range(
+      parsed.startCol,
+      row,
+      parsed.endCol,
+      Math.min(row + maxRowsPerRequest - 1, parsed.endRow)
+    ));
+  }
+  return chunks;
+}
+
+function parseA1Range(range) {
+  const match = String(range || "").trim().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if (!match) return null;
   const [, startColRaw, startRowRaw, endColRaw, endRowRaw] = match;
-  const startCol = columnIndex(startColRaw);
-  const endCol = columnIndex(endColRaw);
-  const startRow = Number(startRowRaw);
-  const endRow = Number(endRowRaw);
-  const columns = Math.max(1, Math.abs(endCol - startCol) + 1);
-  const rows = Math.max(1, Math.abs(endRow - startRow) + 1);
-  const maxCells = clampInt(process.env.DINGTALK_MAX_CELLS, 30000, 200000, 120000);
-  const maxRows = Math.floor(maxCells / columns);
-  if (rows <= maxRows) return raw.toUpperCase();
-  const safeEndRow = startRow + maxRows - 1;
-  return `${startColRaw.toUpperCase()}${startRow}:${endColRaw.toUpperCase()}${safeEndRow}`;
+  return {
+    startCol: startColRaw.toUpperCase(),
+    startRow: Number(startRowRaw),
+    endCol: endColRaw.toUpperCase(),
+    endRow: Number(endRowRaw)
+  };
+}
+
+function formatA1Range(startCol, startRow, endCol, endRow) {
+  return `${startCol.toUpperCase()}${startRow}:${endCol.toUpperCase()}${endRow}`;
 }
 
 function columnIndex(label) {
@@ -359,9 +389,9 @@ function extractMatrix(payload) {
 function transformWorkbook(sheets) {
   const metaRows = rowsFromMatrix(sheets["基础配置"]);
   const cityRows = rowsFromMatrix(sheets["双城经营"]);
-  const krRows = rowsFromMatrix(sheets["公司KR"]);
-  const departmentRows = rowsFromMatrix(sheets["六部门OKR"]);
-  const projectRows = rowsFromMatrix(sheets["六项目OKR"]);
+  const krRows = normalizeCompanyKrRows(rowsFromMatrix(sheets["公司KR"]));
+  const departmentRows = normalizeDepartmentRows(rowsFromMatrix(sheets["六部门OKR"]));
+  const projectRows = normalizeProjectRows(rowsFromMatrix(sheets["六项目OKR"]));
   const personRows = rowsFromMatrix(sheets["个人OKR"]);
   const coachRows = rowsFromMatrix(sheets["教练经营"]);
   const districtRows = rowsFromMatrix(sheets["城区分布"]);
@@ -369,8 +399,8 @@ function transformWorkbook(sheets) {
   const storeRows = rowsFromMatrix(sheets["门店明细"]);
   const coachProfileRows = rowsFromMatrix(sheets["教练档案"]);
   const relationRows = rowsFromMatrix(sheets["教练门店关系"]);
-  const trialRows = rowsFromMatrix(sheets["体验课流水"]);
-  const renewalRows = rowsFromMatrix(sheets["续课流水"]);
+  const trialRows = normalizeTrialRows(rowsFromMatrix(sheets["体验课流水"]));
+  const renewalRows = normalizeRenewalRows(rowsFromMatrix(sheets["续课流水"]));
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
   const autoModel = buildAutoOperatingModel({
     meta,
@@ -594,6 +624,113 @@ function districtSummaryFromRow(district) {
   };
 }
 
+function normalizeCompanyKrRows(rows) {
+  return rows.map((row) => {
+    if (text(row.period_type)) return row;
+    const target = firstValue(row, ["目标2", "目标值", "目标"]);
+    const done = firstValue(row, ["实际", "实际完成", "完成"]);
+    return {
+      ...row,
+      period_type: "month",
+      "KR编号": firstValue(row, ["KR编号", "编号"]),
+      "KR名称": firstValue(row, ["KR名称", "目标"]),
+      "目标": target,
+      "完成": done,
+      "完成率_%": num(row["完成率_%"], percentNumber(done, target)),
+      "负责人": text(row["负责人"]),
+      "支持部门": text(row["支持部门"] || row["负责人"]),
+      "风险": text(row["风险"]),
+      "关键行动": text(row["关键行动"]),
+      "颜色": text(row["颜色"], colorByRate(percentNumber(done, target)))
+    };
+  });
+}
+
+function normalizeDepartmentRows(rows) {
+  return rows.map((row) => {
+    if (text(row.Objective)) return row;
+    const target = firstValue(row, ["目标", "目标值"]);
+    const done = firstValue(row, ["实际", "实际完成"]);
+    return {
+      ...row,
+      "部门": text(row["部门"]),
+      "Objective": text(row["部门O"] || row["Objective"]),
+      "负责人": text(row["负责人"] || row["部门负责人"]),
+      "目标值": target,
+      "实际完成": done,
+      "单位": text(row["单位"]),
+      "完成率_%": percentNumber(done, target),
+      "下一步具体动作": text(row["下一步具体动作"]),
+      "关键KR": text(row["关键KR"] || row["KR名称"])
+    };
+  });
+}
+
+function normalizeProjectRows(rows) {
+  return rows.map((row) => {
+    if (text(row.Objective)) return row;
+    const target = firstValue(row, ["目标", "目标值"]);
+    const done = firstValue(row, ["实际", "实际完成"]);
+    return {
+      ...row,
+      "项目": text(row["项目"]),
+      "Objective": text(row["项目O"] || row["Objective"]),
+      "负责人": text(row["负责人"]),
+      "目标值": target,
+      "实际完成": done,
+      "单位": text(row["单位"]),
+      "完成率_%": percentNumber(done, target),
+      "下一步具体动作": text(row["下一步具体动作"]),
+      "关键KR": text(row["关键KR"] || row["KR名称"])
+    };
+  });
+}
+
+function normalizeTrialRows(rows) {
+  return rows.map((row) => {
+    const status = text(firstValue(row, ["状态", "订单状态", "下单时间1", "跟进情况"]));
+    const refunded = /退款|已退|取消/.test(status);
+    const converted = text(row["转正课时间"] || row["转正课时间1"]) !== "";
+    const paid = num(firstValue(row, ["金额", "实付金额", "实际支付", "支付金额", "课程价格"]));
+    return {
+      ...row,
+      "日期": firstValue(row, ["日期", "下单时间", "支付时间", "创建时间"]),
+      "城市": normalizeCity(firstValue(row, ["城市", "分配城市", "分配区域"])),
+      "区域": normalizeDistrict(firstValue(row, ["区域", "分配区域"])),
+      "教练": text(row["教练"]),
+      "门店名称": firstValue(row, ["门店名称", "上课门店"]),
+      "课程名称": firstValue(row, ["课程名称", "课程种类"]),
+      "下单数": refunded ? 0 : num(row["下单数"], 1),
+      "转化数": !refunded && converted ? 1 : num(row["转化数"]),
+      "已消课数": !refunded && /已消课|已上课|完成/.test(status) ? 1 : num(row["已消课数"]),
+      "金额": refunded ? 0 : paid,
+      "渠道": firstValue(row, ["渠道", "来源"]),
+      "状态": status
+    };
+  });
+}
+
+function normalizeRenewalRows(rows) {
+  return rows.map((row) => {
+    const status = text(firstValue(row, ["状态", "订单状态", "续课状态", "续费情况", "课程完成进度"]));
+    const refunded = /退款|已退|取消/.test(status);
+    const paid = num(firstValue(row, ["金额", "实付金额", "实际支付", "支付金额", "课程单价"]));
+    return {
+      ...row,
+      "日期": firstValue(row, ["日期", "续课日期", "报名日期", "下单时间", "支付时间", "创建时间"]),
+      "城市": normalizeCity(firstValue(row, ["城市", "分配城市", "区域"])),
+      "区域": normalizeDistrict(firstValue(row, ["区域", "分配区域"])),
+      "教练": text(row["教练"]),
+      "门店名称": firstValue(row, ["门店名称", "上课门店"]),
+      "课程名称": firstValue(row, ["课程名称", "课程种类"]),
+      "续约数": refunded ? 0 : num(row["续约数"], 1),
+      "金额": refunded ? 0 : paid,
+      "渠道": firstValue(row, ["渠道", "来源"]),
+      "状态": status
+    };
+  });
+}
+
 function buildAutoOperatingModel(source) {
   if (!source.stores.length && !source.coaches.length && !source.trials.length && !source.renewals.length) return {};
   const periods = operatingPeriods(source.meta.period);
@@ -798,6 +935,7 @@ function rowDate(row, key = "日期") {
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = text(value);
   if (!raw) return null;
+  if (/^\d{5}(?:\.\d+)?$/.test(raw)) return new Date(Math.round((Number(raw) - 25569) * 86400 * 1000));
   const normalized = raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-");
   const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/);
   if (localMatch) {
@@ -830,6 +968,7 @@ function parseCellDate(value) {
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = text(value);
   if (!raw) return null;
+  if (/^\d{5}(?:\.\d+)?$/.test(raw)) return new Date(Math.round((Number(raw) - 25569) * 86400 * 1000));
   const normalized = raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-");
   const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/);
   if (localMatch) {
@@ -898,6 +1037,28 @@ function coachNameFromRow(row) {
 function sameCoach(row, coachId, coachName) {
   const rowCoachName = coachNameFromRow(row);
   return (coachId && text(row["教练ID"]) === coachId) || (coachName && rowCoachName === coachName);
+}
+
+function normalizeCity(value) {
+  const raw = text(value);
+  if (raw.includes("深圳")) return "深圳";
+  if (raw.includes("广州")) return "广州";
+  const district = normalizeDistrict(raw);
+  const shenzhen = ["南山", "福田", "罗湖", "宝安", "龙岗", "龙华", "坪山", "光明", "盐田", "大鹏"];
+  const guangzhou = ["天河", "越秀", "海珠", "荔湾", "白云", "黄埔", "番禺", "增城", "南沙", "花都", "从化"];
+  if (shenzhen.some((item) => district.includes(item))) return "深圳";
+  if (guangzhou.some((item) => district.includes(item))) return "广州";
+  return raw.replace(/市$/, "");
+}
+
+function normalizeDistrict(value) {
+  return text(value).replace(/区$/, "") ? `${text(value).replace(/区$/, "")}区` : "";
+}
+
+function percentNumber(done, target) {
+  const targetNumber = num(target);
+  if (!targetNumber) return 0;
+  return round((num(done) / targetNumber) * 100, 1);
 }
 
 function isPaidStore(row) {
