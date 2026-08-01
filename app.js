@@ -308,7 +308,16 @@ function renderCityCenter(view) {
       <h3 class="blue">经营建议</h3>
       <ul><li>城市负责人每日看用户数、体验课成交率、教练成交率、续客率四张表。</li><li>城区图按门店/教练密度找空白区，新增门店优先补高需求低覆盖区域。</li></ul>
     </section>
+    <section class="insight-group">
+      <h3 class="blue">公式口径</h3>
+      <ul>${formulaLogicItems(centers).map(item => `<li>${item}</li>`).join("")}</ul>
+    </section>
   `;
+}
+
+function formulaLogicItems(cities) {
+  const logic = cities.flatMap(city => Array.isArray(city.formulaLogic) ? city.formulaLogic : []);
+  return [...new Set(logic)].slice(0, 4);
 }
 
 function renderHeadquartersOkr(view) {
@@ -984,45 +993,22 @@ function accentFor(name = "") {
 
 async function loadRemoteData(manual = false) {
   const defaultEndpoint = window.location.protocol === "file:" ? "./data.json" : "/api/dingtalk-data";
-  const savedEndpoint = localStorage.getItem("dingtalkEndpoint");
-  const endpoints = savedEndpoint && savedEndpoint !== defaultEndpoint
-    ? [savedEndpoint, defaultEndpoint]
-    : [defaultEndpoint];
-  if (!endpoints.length) {
+  const endpoint = localStorage.getItem("dingtalkEndpoint") || defaultEndpoint;
+  if (!endpoint) {
     if (manual) alert("还没有配置数据接口。");
     return;
   }
-  const errors = [];
   try {
-    let loaded = null;
-    let loadedEndpoint = "";
-    for (const endpoint of endpoints) {
-      try {
-        loaded = await fetchRemoteJson(endpoint);
-        loadedEndpoint = endpoint;
-        break;
-      } catch (error) {
-        errors.push(`${endpoint}: ${error.message}`);
-      }
-    }
-    if (!loaded) throw new Error(errors.join("；"));
-    if (savedEndpoint && loadedEndpoint === defaultEndpoint) {
-      localStorage.removeItem("dingtalkEndpoint");
-    }
-    cockpitData = loaded;
-    cockpitData.meta.syncMode = loadedEndpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
+    const response = await fetch(endpoint, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    cockpitData = await response.json();
+    cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
     render();
   } catch (error) {
-    cockpitData.meta.syncMode = defaultEndpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
+    cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
   }
-}
-
-async function fetchRemoteJson(endpoint) {
-  const response = await fetch(endpoint, { cache: "no-store" });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
 }
 
 function downloadFile(url, filename) {
@@ -1104,6 +1090,42 @@ function transformExcelWorkbook(workbook) {
     const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: false, defval: "" });
     return [name, matrix];
   }));
+  return transformExcelSheets(sheets, "本地Excel上传");
+}
+
+async function uploadJsonData() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.multiple = true;
+  input.addEventListener("change", async () => {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    try {
+      const payloads = await Promise.all(files.map(async (file) => ({
+        name: file.name,
+        data: JSON.parse(await file.text())
+      })));
+      const direct = payloads.find((item) => item.data && item.data.views && item.data.meta);
+      if (direct) {
+        cockpitData = direct.data;
+        cockpitData.meta.syncMode = `本地JSON上传：${direct.name}`;
+      } else {
+        const sheets = jsonPayloadsToSheets(payloads);
+        cockpitData = transformExcelSheets(sheets, `本地JSON上传：${files.map((file) => file.name).join("、")}`);
+      }
+      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      localStorage.removeItem("dingtalkEndpoint");
+      render();
+      alert("JSON数据已读取并刷新看板。系统会按本月、最近7天、昨日自动重新汇总。");
+    } catch (error) {
+      alert(`JSON读取失败：${error.message}`);
+    }
+  }, { once: true });
+  input.click();
+}
+
+function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const metaRows = excelRows(sheets["基础配置"]);
   const cityRows = excelRows(sheets["双城经营"]);
   const krRows = excelRows(sheets["公司KR"]);
@@ -1113,73 +1135,26 @@ function transformExcelWorkbook(workbook) {
   const coachRows = excelRows(sheets["教练经营"]);
   const districtRows = excelRows(sheets["城区分布"]);
   const funnelRows = excelRows(sheets["转化漏斗"]);
+  const storeRows = excelRows(sheets["门店明细"]);
+  const coachProfileRows = excelRows(sheets["教练档案"]);
+  const relationRows = excelRows(sheets["教练门店关系"]);
+  const trialRows = excelRows(sheets["体验课流水"]);
+  const renewalRows = excelRows(sheets["续课流水"]);
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
+  const autoModel = excelAutoOperatingModel({
+    meta,
+    stores: storeRows,
+    coaches: coachProfileRows,
+    relations: relationRows,
+    trials: trialRows,
+    renewals: renewalRows
+  });
   const views = {};
 
   for (const view of ["month", "week", "day"]) {
     const cities = cityRows
       .filter((r) => excelText(r.period_type) === view)
-      .map((r) => {
-        const cityName = excelText(r["城市"]);
-        return {
-          key: cityName === "深圳" ? "shenzhen" : "guangzhou",
-          name: cityName,
-          color: cityName === "深圳" ? "#0066ff" : "#1aa7ff",
-          goal: excelNum(r["目标营收_万元"]),
-          completed: excelNum(r["实际完成_万元"]),
-          rate: excelNum(r["完成率_%"]),
-          time: excelNum(r["时间进度_%"]),
-          gap: excelNum(r["差距_万元"]),
-          forecast: excelNum(r["预计月底_万元"]),
-          needed: excelNum(r["还需完成_万元"]),
-          status: excelText(r["状态"], "预警"),
-          monthlyGoal: excelNum(r["月度目标_万元"], excelNum(r["目标营收_万元"])),
-          monthlyCompleted: excelNum(r["月度完成_万元"], excelNum(r["实际完成_万元"])),
-          weekGoal: excelNum(r["周目标_万元"], excelNum(r["目标营收_万元"]) / 4),
-          weekCompleted: excelNum(r["周完成_万元"]),
-          yesterdayCompleted: excelNum(r["昨日完成_万元"]),
-          courseUsersTotal: excelNum(r["正课总用户数"]),
-          courseUsersExpiring: excelNum(r["到期用户数"]),
-          courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),
-          trialLessonsTotal: excelNum(r["总体验课数"]),
-          trialLessonsMonth: excelNum(r["本月体验课数"]),
-          trialDeals: excelNum(r["体验课成交数"]),
-          coachesTotal: excelNum(r["总教练数"]),
-          coachesNew: excelNum(r["新增教练数"]),
-          coachesNewMonth: excelNum(r["月度新增教练数"], excelNum(r["新增教练数"])),
-          coachesNewYesterday: excelNum(r["昨日新增教练数"]),
-          coachesNewMonthNames: excelSplit(r["月度新增教练名字"] || r["本月新增教练名字"] || r["本月新增教练"]),
-          coachesNewYesterdayNames: excelSplit(r["昨日新增教练名字"] || r["昨天新增教练名字"] || r["昨日新增教练"]),
-          storesTotal: excelNum(r["入驻门店数"]),
-          storesPaidTotal: excelNum(r["付费入驻门店数"]),
-          storesFreeTotal: excelNum(r["免费入驻门店数"]),
-          storesNew: excelNum(r["新增门店数"]),
-          storesNewPaid: excelNum(r["月度新签付费门店数"] || r["新签付费门店数"]),
-          storesNewFree: excelNum(r["月度新签免费门店数"] || r["新签免费门店数"]),
-          storesNewMonth: excelNum(r["月度新增门店数"], excelNum(r["新增门店数"])),
-          storesNewYesterday: excelNum(r["昨日新增门店数"]),
-          storesNewMonthList: excelStoreItems(r["月度新增门店所在区及名字"] || r["月度新增门店"] || r["本月新增门店"]),
-          storesNewYesterdayList: excelStoreItems(r["昨日新增门店所在区及名字"] || r["昨日新增门店"]),
-          newSignedStores: excelNum(r["新签门店数"], excelNum(r["新增门店数"])),
-          channels: {
-            user: excelChannelMetrics(r, "用户端"),
-            coach: excelChannelMetrics(r, "教练端"),
-            store: excelChannelMetrics(r, "门店端")
-          },
-          coaches: coachRows
-            .filter((coach) => excelText(coach.period_type, view) === view && excelText(coach["城市"]) === cityName)
-            .map(excelCoach),
-          districts: districtRows
-            .filter((district) => excelText(district.period_type, view) === view && excelText(district["城市"]) === cityName)
-            .map((district) => ({
-              name: excelText(district["区域"]),
-              coaches: excelNum(district["教练数"]),
-              coachNames: excelSplit(district["教练名字"] || district["教练名称"] || district["教练名单"]),
-              stores: excelNum(district["门店数"]),
-              storeNames: excelSplit(district["门店名字"] || district["门店名称"] || district["门店名单"])
-            }))
-        };
-      });
+      .map((r) => excelCityViewRow(r, view, autoModel[view]?.[excelText(r["城市"])], coachRows, districtRows));
     const companyKr = krRows
       .filter((r) => excelText(r.period_type) === view)
       .map((r) => ({
@@ -1216,10 +1191,10 @@ function transformExcelWorkbook(workbook) {
   return {
     meta: {
       company: excelText(meta.company, "小铁台球教培"),
-      period: excelText(meta.period, "2026年7月1日 - 7月31日"),
+      period: excelText(meta.period, currentMonthPeriodText()),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
       totalGoal: excelNum(meta.totalGoal, 85),
-      syncMode: "本地Excel上传"
+      syncMode
     },
     views,
     departments: departmentRows.map(excelOkrRow("部门")),
@@ -1227,6 +1202,624 @@ function transformExcelWorkbook(workbook) {
     people: [],
     peopleDetails: personRows,
     conversionFunnel: excelFunnel(funnelRows)
+  };
+}
+
+function jsonPayloadsToSheets(payloads) {
+  const buckets = {
+    stores: [],
+    coaches: [],
+    orders: [],
+    relations: [],
+    renewals: []
+  };
+  payloads.forEach((payload) => {
+    const rows = extractJsonRows(payload.data);
+    const type = inferJsonType(payload.name, rows);
+    if (type === "stores") buckets.stores.push(...rows);
+    else if (type === "coaches") buckets.coaches.push(...rows);
+    else if (type === "relations") buckets.relations.push(...rows);
+    else if (type === "renewals") buckets.renewals.push(...rows);
+    else buckets.orders.push(...rows);
+  });
+
+  const storeRows = buckets.stores.map(jsonStoreRow);
+  const coachRows = buckets.coaches.map(jsonCoachRow);
+  const relationRows = buckets.relations.map(jsonRelationRow).filter((row) => row["教练ID"] && row["门店名称"]);
+  const orderRows = buckets.orders.map(jsonTrialRow);
+  const renewalRows = buckets.renewals.map(jsonRenewalRow);
+  const splitRenewals = orderRows.filter((row) => isRenewalCourse(row["课程名称"]));
+  const trialRows = orderRows.filter((row) => !isRenewalCourse(row["课程名称"]));
+
+  return {
+    "基础配置": matrixFromRows([
+      { key: "company", value: "小铁台球教培" },
+      { key: "period", value: currentMonthPeriodText() },
+      { key: "totalGoal", value: cockpitData?.meta?.totalGoal || 85 }
+    ], ["key", "value"]),
+    "双城经营": defaultCityRows(),
+    "公司KR": currentKrRows(),
+    "六部门OKR": currentOkrRows("部门", cockpitData?.departments || []),
+    "六项目OKR": currentOkrRows("项目", cockpitData?.projects || []),
+    "个人OKR": [],
+    "门店明细": matrixFromRows(storeRows, ["门店ID", "城市", "区域", "门店名称", "地址", "关联教练数", "门店状态", "门店类型", "球房类型", "上下架", "驻场教练", "入驻类型", "是否付费", "入驻日期", "新增类型", "昨日新增"]),
+    "教练档案": matrixFromRows(coachRows, ["教练ID", "城市", "区域", "教练", "教练等级", "在职状态", "入职日期", "新增类型", "昨日新增", "服务门店"]),
+    "教练门店关系": matrixFromRows(relationRows, ["教练ID", "教练", "门店ID", "门店名称"]),
+    "体验课流水": matrixFromRows(trialRows, ["日期", "订单ID", "城市", "区域", "教练ID", "教练", "门店ID", "门店名称", "课程名称", "下单数", "转化数", "已消课数", "金额", "渠道", "状态"]),
+    "续课流水": matrixFromRows([...renewalRows, ...splitRenewals.map(jsonRenewalFromTrial)], ["日期", "订单ID", "城市", "区域", "教练ID", "教练", "门店ID", "门店名称", "课程名称", "续约数", "金额", "渠道", "状态"]),
+    "教练经营": [],
+    "城区分布": [],
+    "转化漏斗": currentFunnelRows(),
+    "经营重点": matrixFromRows([
+      { "类型": "经营建议", "内容": "已使用后台 JSON 自动汇总，请重点检查订单状态、退款、转化字段是否与后台口径一致。" }
+    ], ["类型", "内容"])
+  };
+}
+
+function extractJsonRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  const candidates = [
+    payload?.data?.items,
+    payload?.data?.records,
+    payload?.data?.list,
+    payload?.data?.rows,
+    payload?.data,
+    payload?.items,
+    payload?.records,
+    payload?.list,
+    payload?.rows
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  if (payload && typeof payload === "object") {
+    for (const value of Object.values(payload)) {
+      if (Array.isArray(value)) return value;
+      if (value && typeof value === "object") {
+        const nested = extractJsonRows(value);
+        if (nested.length) return nested;
+      }
+    }
+  }
+  return [];
+}
+
+function inferJsonType(filename, rows) {
+  const name = filename.toLowerCase();
+  const sample = rows[0] || {};
+  const keys = Object.keys(sample).join("|").toLowerCase();
+  if (/门店|store|site/.test(name) || /site_name|store_name|门店名称|关联教练|coach_count|room_type|is_value_added|has_onsite_coach/.test(keys)) return "stores";
+  if (/教练门店|关联/.test(name) || (/coach_id|教练id/.test(keys) && /site_id|store_id|门店id/.test(keys) && /site_name|store_name|门店名称/.test(keys))) return "relations";
+  if (/教练|coach/.test(name) || /coach_id|教练id|coach_name|教练等级|level/.test(keys)) return "coaches";
+  if (/续课|续约|renew/.test(name)) return "renewals";
+  return "orders";
+}
+
+function jsonStoreRow(row) {
+  const city = normalizeCity(jsonValue(row, ["城市", "city", "city_name", "belong_city"]));
+  const created = jsonDate(row, ["入驻日期", "创建时间", "created_at", "createTime", "createdAt"]);
+  return {
+    "门店ID": jsonValue(row, ["门店ID", "site_id", "store_id", "id"]),
+    "城市": city,
+    "区域": jsonValue(row, ["区域", "area", "area_name", "district", "region"]),
+    "门店名称": jsonValue(row, ["门店名称", "site_name", "store_name", "name"]),
+    "地址": jsonValue(row, ["地址", "address"]),
+    "关联教练数": jsonNumber(row, ["关联教练", "关联教练数", "coach_count", "coaches_count"]),
+    "门店状态": storeStatusLabel(jsonValue(row, ["状态", "status_name", "status"])),
+    "门店类型": storeSourceLabel(jsonValue(row, ["门店类型", "source_name", "source", "type_name", "type"])),
+    "球房类型": roomTypeLabel(jsonValue(row, ["球房类型", "room_type", "roomType"])),
+    "上下架": showStatusLabel(jsonValue(row, ["上下架", "show_status", "showStatus"])),
+    "驻场教练": jsonBoolean(row, ["has_onsite_coach", "驻场教练", "是否驻场"]) ? "是" : "否",
+    "入驻类型": jsonPaid(row) ? "付费入驻" : "免费入驻",
+    "是否付费": jsonPaid(row) ? 1 : 0,
+    "入驻日期": created,
+    "新增类型": dateInCurrentMonthText(created) ? "本月新增" : "",
+    "昨日新增": dateIsYesterdayText(created) ? "昨日新增" : ""
+  };
+}
+
+function jsonCoachRow(row) {
+  const created = jsonDate(row, ["入职日期", "创建时间", "created_at", "createTime", "createdAt"]);
+  const cities = jsonArrayValue(row, ["城市", "city", "city_name", "belong_city"]).map(normalizeCity).filter(Boolean);
+  const areas = jsonArrayValue(row, ["区域", "area", "area_name", "district", "residence_area"]).filter(Boolean);
+  const cityList = cities.length ? cities : [normalizeCity(jsonValue(row, ["城市", "city", "city_name", "belong_city"]))].filter(Boolean);
+  const areaList = areas.length ? areas : [jsonValue(row, ["区域", "area", "area_name", "district", "residence_area"])].filter(Boolean);
+  return {
+    "教练ID": jsonValue(row, ["教练ID", "coach_id", "id"]),
+    "城市": cityList.join("、"),
+    "区域": areaList.join("、"),
+    "教练": jsonValue(row, ["教练", "coach_name", "name", "show_name"]),
+    "教练等级": coachLevelLabel(jsonValue(row, ["教练等级", "level", "coach_level"])),
+    "在职状态": coachStatusLabel(jsonValue(row, ["在职状态", "status_name", "status"])),
+    "入职日期": created,
+    "新增类型": dateInCurrentMonthText(created) ? "本月新增" : "",
+    "昨日新增": dateIsYesterdayText(created) ? "昨日新增" : "",
+    "服务门店": jsonValue(row, ["服务门店", "site_names", "store_names"]) || serviceStoreCountLabel(jsonValue(row, ["site_count", "门店数", "服务门店数"]))
+  };
+}
+
+function jsonRelationRow(row) {
+  return {
+    "教练ID": jsonValue(row, ["教练ID", "coach_id", "id"]),
+    "教练": jsonValue(row, ["教练", "coach_name", "name"]),
+    "门店ID": jsonValue(row, ["门店ID", "site_id", "store_id"]),
+    "门店名称": jsonValue(row, ["门店名称", "site_name", "store_name", "name"])
+  };
+}
+
+function jsonTrialRow(row) {
+  const status = jsonValue(row, ["状态", "status_name", "order_status_name", "status"]);
+  const refunded = /退款|已退|取消/.test(status);
+  const converted = jsonBoolean(row, ["已转化", "是否转化", "converted", "is_converted"]) || /转化|成交|续约/.test(status);
+  return {
+    "日期": jsonDate(row, ["日期", "下单时间", "支付时间", "created_at", "createTime", "createdAt", "paid_at"]),
+    "订单ID": jsonValue(row, ["订单ID", "order_id", "id"]),
+    "城市": normalizeCity(jsonValue(row, ["城市", "city", "city_name"])),
+    "区域": jsonValue(row, ["区域", "area", "area_name", "district"]),
+    "教练ID": jsonValue(row, ["教练ID", "coach_id"]),
+    "教练": jsonValue(row, ["教练", "coach_name"]),
+    "门店ID": jsonValue(row, ["门店ID", "site_id", "store_id"]),
+    "门店名称": jsonValue(row, ["门店名称", "site_name", "store_name"]),
+    "课程名称": jsonValue(row, ["课程名称", "course_name", "product_name", "name"]),
+    "下单数": refunded ? 0 : 1,
+    "转化数": converted && !refunded ? 1 : 0,
+    "已消课数": /已上课|已消课|完成/.test(status) ? 1 : 0,
+    "金额": refunded ? 0 : jsonNumber(row, ["金额", "实付金额", "pay_amount", "amount", "price", "total_amount"]),
+    "渠道": jsonValue(row, ["渠道", "channel", "source_name", "source"]),
+    "状态": status
+  };
+}
+
+function jsonRenewalRow(row) {
+  const status = jsonValue(row, ["状态", "status_name", "order_status_name", "status"]);
+  const refunded = /退款|已退|取消/.test(status);
+  return {
+    "日期": jsonDate(row, ["日期", "续课日期", "下单时间", "支付时间", "created_at", "createTime", "createdAt", "paid_at"]),
+    "订单ID": jsonValue(row, ["订单ID", "order_id", "id"]),
+    "城市": normalizeCity(jsonValue(row, ["城市", "city", "city_name"])),
+    "区域": jsonValue(row, ["区域", "area", "area_name", "district"]),
+    "教练ID": jsonValue(row, ["教练ID", "coach_id"]),
+    "教练": jsonValue(row, ["教练", "coach_name"]),
+    "门店ID": jsonValue(row, ["门店ID", "site_id", "store_id"]),
+    "门店名称": jsonValue(row, ["门店名称", "site_name", "store_name"]),
+    "课程名称": jsonValue(row, ["课程名称", "course_name", "product_name", "name"]),
+    "续约数": refunded ? 0 : 1,
+    "金额": refunded ? 0 : jsonNumber(row, ["金额", "实付金额", "pay_amount", "amount", "price", "total_amount"]),
+    "渠道": jsonValue(row, ["渠道", "channel", "source_name", "source"]),
+    "状态": status
+  };
+}
+
+function jsonRenewalFromTrial(row) {
+  return {
+    "日期": row["日期"],
+    "订单ID": row["订单ID"],
+    "城市": row["城市"],
+    "区域": row["区域"],
+    "教练ID": row["教练ID"],
+    "教练": row["教练"],
+    "门店ID": row["门店ID"],
+    "门店名称": row["门店名称"],
+    "课程名称": row["课程名称"],
+    "续约数": row["下单数"],
+    "金额": row["金额"],
+    "渠道": row["渠道"],
+    "状态": row["状态"]
+  };
+}
+
+function matrixFromRows(rows, headers) {
+  return [headers, ...rows.map((row) => headers.map((header) => row[header] ?? ""))];
+}
+
+function defaultCityRows() {
+  const headers = ["period_type", "城市", "目标营收_万元", "时间进度_%"];
+  return [headers, ...["month", "week", "day"].flatMap((period) => [
+    [period, "深圳", currentCityGoal(period, "深圳"), monthProgress()],
+    [period, "广州", currentCityGoal(period, "广州"), monthProgress()]
+  ])];
+}
+
+function currentCityGoal(period, cityName) {
+  const city = cockpitData?.views?.[period]?.cities?.find((item) => item.name === cityName);
+  return city?.goal || city?.monthlyGoal || 0;
+}
+
+function currentKrRows() {
+  const headers = ["period_type", "KR编号", "KR名称", "目标", "完成", "完成率_%", "负责人", "支持部门", "风险", "关键行动", "颜色"];
+  const rows = Object.entries(cockpitData?.views || {}).flatMap(([period, view]) => (view.companyKr || []).map((kr) => ({
+    "period_type": period,
+    "KR编号": kr.code,
+    "KR名称": kr.title,
+    "目标": kr.target,
+    "完成": kr.done,
+    "完成率_%": kr.rate,
+    "负责人": kr.owner,
+    "支持部门": kr.support,
+    "风险": kr.risk,
+    "关键行动": kr.action,
+    "颜色": kr.color
+  })));
+  return matrixFromRows(rows, headers);
+}
+
+function currentOkrRows(typeName, items) {
+  const headers = [typeName, "Objective", "负责人", "目标值", "实际完成", "单位", "完成率_%", "风险/卡点", "下一步具体动作", "截止日期", "关键KR"];
+  const rows = items.map((item) => ({
+    [typeName]: item.name,
+    "Objective": item.objective,
+    "负责人": item.owner,
+    "目标值": item.target,
+    "实际完成": item.done,
+    "单位": item.unit,
+    "完成率_%": item.rate,
+    "风险/卡点": item.risk,
+    "下一步具体动作": item.action,
+    "截止日期": item.dueDate,
+    "关键KR": Array.isArray(item.krs) ? item.krs.join("；") : item.krs
+  }));
+  return matrixFromRows(rows, headers);
+}
+
+function currentFunnelRows() {
+  const headers = ["排序", "环节", "数值", "副标题", "美团", "抖音", "私域", "其他"];
+  const rows = (cockpitData?.conversionFunnel || []).map((item, index) => {
+    const channels = Object.fromEntries((item.channels || []).map((channel) => [channel.name, channel.value]));
+    return {
+      "排序": index + 1,
+      "环节": item.name,
+      "数值": item.value,
+      "副标题": item.note,
+      "美团": channels["美团"],
+      "抖音": channels["抖音"],
+      "私域": channels["私域"],
+      "其他": channels["其他"]
+    };
+  });
+  return matrixFromRows(rows, headers);
+}
+
+function jsonValue(row, keys, fallback = "") {
+  for (const key of keys) {
+    const value = deepJsonValue(row, key);
+    if (value == null || value === "") continue;
+    if (Array.isArray(value)) return value.map((item) => jsonPrimitive(item)).filter(Boolean).join("、");
+    return jsonPrimitive(value);
+  }
+  return fallback;
+}
+
+function jsonArrayValue(row, keys) {
+  for (const key of keys) {
+    const value = deepJsonValue(row, key);
+    if (Array.isArray(value)) return value.map((item) => jsonPrimitive(item)).filter(Boolean);
+    if (value != null && value !== "") return String(value).split(/[、,，；;|\n]+/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function deepJsonValue(row, key) {
+  if (!row || typeof row !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
+  const snake = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  if (Object.prototype.hasOwnProperty.call(row, snake)) return row[snake];
+  for (const value of Object.values(row)) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const found = deepJsonValue(value, key);
+      if (found != null && found !== "") return found;
+    }
+  }
+  return undefined;
+}
+
+function jsonPrimitive(value) {
+  if (value == null) return "";
+  if (typeof value === "object") return value.name || value.title || value.text || value.label || value.id || "";
+  return String(value).trim();
+}
+
+function jsonNumber(row, keys, fallback = 0) {
+  const raw = jsonValue(row, keys);
+  const number = Number(String(raw).replace(/,/g, "").replace("%", ""));
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function jsonBoolean(row, keys) {
+  return ["1", "true", "TRUE", "是", "已", "yes"].includes(jsonValue(row, keys));
+}
+
+function jsonDate(row, keys) {
+  const raw = jsonValue(row, keys);
+  if (!raw) return "";
+  const date = new Date(String(raw).replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-"));
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeCity(value) {
+  const raw = Array.isArray(value) ? value.join("") : String(value || "");
+  if (raw.includes("深圳")) return "深圳";
+  if (raw.includes("广州")) return "广州";
+  return raw.replace(/市$/, "");
+}
+
+function coachLevelLabel(value) {
+  const raw = String(value || "").trim();
+  const map = { 1: "L1", 2: "L2", 3: "L3", 4: "L4", 5: "L5" };
+  return map[raw] || raw || "未定级";
+}
+
+function coachStatusLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "1" || raw === "在职" || raw === "启用") return "在职";
+  if (raw === "2" || raw === "停用" || raw === "禁用") return "停用";
+  if (raw === "3" || raw === "离职") return "离职";
+  return raw;
+}
+
+function serviceStoreCountLabel(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? `已关联${count}家门店` : "";
+}
+
+function jsonPaid(row) {
+  const raw = jsonValue(row, ["增值门店", "是否付费", "is_value_added", "value_added", "paid", "付费入驻", "入驻类型"]);
+  return ["1", "true", "TRUE", "是", "付费", "付费入驻"].some((item) => String(raw).includes(item));
+}
+
+function storeStatusLabel(value) {
+  const raw = String(value || "").trim();
+  const map = {
+    1: "营业中",
+    2: "暂停营业",
+    3: "闭店",
+    4: "装修中",
+    5: "删除",
+    6: "测试"
+  };
+  return map[raw] || raw || "未知";
+}
+
+function showStatusLabel(value) {
+  const raw = String(value || "").trim();
+  const map = { 1: "上架", 2: "下架" };
+  return map[raw] || raw || "未知";
+}
+
+function storeSourceLabel(value) {
+  const raw = String(value || "").trim();
+  const map = { 1: "其他门店", 2: "小铁门店" };
+  return map[raw] || raw || "未知";
+}
+
+function roomTypeLabel(value) {
+  const raw = String(value || "").trim();
+  const map = { 1: "自助球房", 2: "商务球房", 3: "竞技球房" };
+  return map[raw] || raw || "";
+}
+
+function isRenewalCourse(name) {
+  return /续课|续费|续约|正课/.test(String(name || ""));
+}
+
+function currentMonthPeriodText() {
+  const now = new Date();
+  return `${now.getFullYear()}年${now.getMonth() + 1}月`;
+}
+
+function monthProgress() {
+  const now = new Date();
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return Math.round((now.getDate() / days) * 1000) / 10;
+}
+
+function dateInCurrentMonthText(value) {
+  const date = excelRowDate({ 日期: value });
+  if (!date) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+}
+
+function dateIsYesterdayText(value) {
+  const date = excelRowDate({ 日期: value });
+  if (!date) return false;
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  return date >= yesterday && date <= new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
+}
+
+function excelCityViewRow(r, view, auto, coachRows, districtRows) {
+  const cityName = excelText(r["城市"]);
+  const goal = excelNum(r["目标营收_万元"]);
+  const completed = auto?.revenueWan ?? excelNum(r["实际完成_万元"]);
+  return {
+    key: cityName === "深圳" ? "shenzhen" : "guangzhou",
+    name: cityName,
+    color: cityName === "深圳" ? "#0066ff" : "#1aa7ff",
+    goal,
+    completed,
+    rate: goal ? percent(completed, goal) : excelNum(r["完成率_%"]),
+    time: excelNum(r["时间进度_%"]),
+    gap: excelNum(r["差距_万元"], completed - goal),
+    forecast: excelNum(r["预计月底_万元"]),
+    needed: excelNum(r["还需完成_万元"], Math.max(goal - completed, 0)),
+    status: excelText(r["状态"], "预警"),
+    monthlyGoal: excelNum(r["月度目标_万元"], goal),
+    monthlyCompleted: auto?.monthRevenueWan ?? excelNum(r["月度完成_万元"], excelNum(r["实际完成_万元"])),
+    weekGoal: excelNum(r["周目标_万元"], goal / 4),
+    weekCompleted: auto?.weekRevenueWan ?? excelNum(r["周完成_万元"]),
+    yesterdayCompleted: auto?.yesterdayRevenueWan ?? excelNum(r["昨日完成_万元"]),
+    courseUsersTotal: auto?.users ?? excelNum(r["正课总用户数"]),
+    courseUsersExpiring: excelNum(r["到期用户数"]),
+    courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),
+    trialLessonsTotal: auto?.cumulativeTrialLessons ?? excelNum(r["总体验课数"]),
+    trialLessonsMonth: auto?.monthTrialLessons ?? excelNum(r["本月体验课数"]),
+    trialDeals: auto?.monthDeals ?? excelNum(r["体验课成交数"]),
+    coachesTotal: auto?.coachesTotal ?? excelNum(r["总教练数"]),
+    coachesNew: auto?.coachesNewMonth ?? excelNum(r["新增教练数"]),
+    coachesNewMonth: auto?.coachesNewMonth ?? excelNum(r["月度新增教练数"], excelNum(r["新增教练数"])),
+    coachesNewYesterday: auto?.coachesNewYesterday ?? excelNum(r["昨日新增教练数"]),
+    coachesNewMonthNames: auto?.coachesNewMonthNames ?? excelSplit(r["月度新增教练名字"] || r["本月新增教练名字"] || r["本月新增教练"]),
+    coachesNewYesterdayNames: auto?.coachesNewYesterdayNames ?? excelSplit(r["昨日新增教练名字"] || r["昨天新增教练名字"] || r["昨日新增教练"]),
+    storesTotal: auto?.storesTotal ?? excelNum(r["入驻门店数"]),
+    storesPaidTotal: auto?.storesPaidTotal ?? excelNum(r["付费入驻门店数"]),
+    storesFreeTotal: auto?.storesFreeTotal ?? excelNum(r["免费入驻门店数"]),
+    storesNew: auto?.storesNewMonth ?? excelNum(r["新增门店数"]),
+    storesNewPaid: auto?.storesNewPaidMonth ?? excelNum(r["月度新签付费门店数"] || r["新签付费门店数"]),
+    storesNewFree: auto?.storesNewFreeMonth ?? excelNum(r["月度新签免费门店数"] || r["新签免费门店数"]),
+    storesNewMonth: auto?.storesNewMonth ?? excelNum(r["月度新增门店数"], excelNum(r["新增门店数"])),
+    storesNewYesterday: auto?.storesNewYesterday ?? excelNum(r["昨日新增门店数"]),
+    storesNewMonthList: auto?.storesNewMonthList ?? excelStoreItems(r["月度新增门店所在区及名字"] || r["月度新增门店"] || r["本月新增门店"]),
+    storesNewYesterdayList: auto?.storesNewYesterdayList ?? excelStoreItems(r["昨日新增门店所在区及名字"] || r["昨日新增门店"]),
+    newSignedStores: auto?.storesNewMonth ?? excelNum(r["新签门店数"], excelNum(r["新增门店数"])),
+    formulaLogic: auto?.formulaLogic || excelFormulaLogic(),
+    channels: auto?.channels || {
+      user: excelChannelMetrics(r, "用户端"),
+      coach: excelChannelMetrics(r, "教练端"),
+      store: excelChannelMetrics(r, "门店端")
+    },
+    coaches: auto?.coaches || coachRows
+      .filter((coach) => excelText(coach.period_type, view) === view && excelText(coach["城市"]) === cityName)
+      .map(excelCoach),
+    districts: auto?.districts || districtRows
+      .filter((district) => excelText(district.period_type, view) === view && excelText(district["城市"]) === cityName)
+      .map(excelDistrict)
+  };
+}
+
+function excelAutoOperatingModel(source) {
+  if (!source.stores.length && !source.coaches.length && !source.trials.length && !source.renewals.length) return {};
+  const periods = excelOperatingPeriods(source.meta.period);
+  const cities = [...new Set([
+    ...source.stores.flatMap(row => excelSplit(row["城市"]).map(normalizeCity)),
+    ...source.coaches.flatMap(row => excelSplit(row["城市"]).map(normalizeCity)),
+    ...source.trials.flatMap(row => excelSplit(row["城市"]).map(normalizeCity)),
+    ...source.renewals.flatMap(row => excelSplit(row["城市"]).map(normalizeCity))
+  ].filter(Boolean))];
+  const relations = excelRelationsByCoach(source.relations);
+  const model = {};
+  for (const [view, period] of Object.entries(periods)) {
+    model[view] = {};
+    for (const city of cities) {
+      model[view][city] = excelAutoCity(city, period, periods, source, relations);
+    }
+  }
+  return model;
+}
+
+function excelAutoCity(city, period, periods, source, relations) {
+  const stores = source.stores.filter(row => excelFieldIncludes(row["城市"], city));
+  const coaches = source.coaches.filter(row => excelFieldIncludes(row["城市"], city));
+  const trials = source.trials.filter(row => excelFieldIncludes(row["城市"], city));
+  const renewals = source.renewals.filter(row => excelFieldIncludes(row["城市"], city));
+  const scopedTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), period));
+  const scopedRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), period));
+  const monthTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), periods.month));
+  const weekTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), periods.week));
+  const yesterdayTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), periods.day));
+  const monthRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.month));
+  const weekRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.week));
+  const yesterdayRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.day));
+  const monthStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.month) || excelTruthy(row["新增类型"]));
+  const yesterdayStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.day) || excelTruthy(row["昨日新增"]));
+  const monthCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.month) || excelTruthy(row["新增类型"]));
+  const yesterdayCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.day) || excelTruthy(row["昨日新增"]));
+  return {
+    revenueWan: Math.round((excelSum(scopedTrials, "金额") + excelSum(scopedRenewals, "金额")) / 100) / 100,
+    monthRevenueWan: Math.round((excelSum(monthTrials, "金额") + excelSum(monthRenewals, "金额")) / 100) / 100,
+    weekRevenueWan: Math.round((excelSum(weekTrials, "金额") + excelSum(weekRenewals, "金额")) / 100) / 100,
+    yesterdayRevenueWan: Math.round((excelSum(yesterdayTrials, "金额") + excelSum(yesterdayRenewals, "金额")) / 100) / 100,
+    cumulativeTrialLessons: excelSum(trials, "下单数"),
+    monthTrialLessons: excelSum(monthTrials, "下单数"),
+    monthDeals: excelSum(monthTrials, "转化数"),
+    users: excelSum(trials, "转化数") + excelSum(renewals, "续约数"),
+    coachesTotal: coaches.filter(row => excelText(row["在职状态"], "在职") !== "离职").length,
+    coachesNewMonth: monthCoaches.length,
+    coachesNewYesterday: yesterdayCoaches.length,
+    coachesNewMonthNames: monthCoaches.map(row => excelText(row["教练"])).filter(Boolean),
+    coachesNewYesterdayNames: yesterdayCoaches.map(row => excelText(row["教练"])).filter(Boolean),
+    storesTotal: stores.length,
+    storesPaidTotal: stores.filter(excelPaidStore).length,
+    storesFreeTotal: stores.filter(row => !excelPaidStore(row)).length,
+    storesNewMonth: monthStores.length,
+    storesNewPaidMonth: monthStores.filter(excelPaidStore).length,
+    storesNewFreeMonth: monthStores.filter(row => !excelPaidStore(row)).length,
+    storesNewYesterday: yesterdayStores.length,
+    storesNewMonthList: monthStores.map(excelStoreItem),
+    storesNewYesterdayList: yesterdayStores.map(excelStoreItem),
+    channels: {
+      user: excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals),
+      coach: excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals),
+      store: excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals)
+    },
+    coaches: coaches.map(coach => excelAggregateCoach(coach, trials, renewals, relations, periods)),
+    districts: excelAggregateDistricts(stores, coaches),
+    formulaLogic: excelFormulaLogic()
+  };
+}
+
+function excelAggregateCoach(coach, trials, renewals, relations, periods) {
+  const coachId = excelText(coach["教练ID"]);
+  const coachName = excelText(coach["教练"]);
+  const ownTrials = trials.filter(row => excelSameCoach(row, coachId, coachName));
+  const ownRenewals = renewals.filter(row => excelSameCoach(row, coachId, coachName));
+  const monthTrials = ownTrials.filter(row => excelDateInPeriod(excelRowDate(row), periods.month));
+  const yesterdayTrials = ownTrials.filter(row => excelDateInPeriod(excelRowDate(row), periods.day));
+  const cumulativeTrialLessons = excelSum(ownTrials, "下单数");
+  const cumulativeDeals = excelSum(ownTrials, "转化数");
+  const monthTrialLessons = excelSum(monthTrials, "下单数");
+  const monthDeals = excelSum(monthTrials, "转化数");
+  const yesterdayTrialLessons = excelSum(yesterdayTrials, "下单数");
+  const yesterdayDeals = excelSum(yesterdayTrials, "转化数");
+  const renewalsCount = excelSum(ownRenewals, "续约数") || ownRenewals.length;
+  return {
+    name: coachName,
+    level: excelText(coach["教练等级"], "未定级"),
+    district: excelText(coach["区域"]),
+    storeNames: relations.get(coachId)?.length ? relations.get(coachId) : excelSplit(coach["服务门店"] || coach["门店名称"]),
+    cumulativeTrialLessons,
+    cumulativeDeals,
+    cumulativeConversionRate: percent(cumulativeDeals, cumulativeTrialLessons),
+    monthTrialLessons,
+    monthDeals,
+    monthConversionRate: percent(monthDeals, monthTrialLessons),
+    yesterdayTrialLessons,
+    yesterdayDeals,
+    yesterdayConversionRate: percent(yesterdayDeals, yesterdayTrialLessons),
+    trialLessons: monthTrialLessons,
+    trialDeals: monthDeals,
+    conversionRate: percent(monthDeals, monthTrialLessons),
+    users: cumulativeDeals,
+    renewals: renewalsCount,
+    renewalRate: percent(renewalsCount, cumulativeDeals)
+  };
+}
+
+function excelAggregateDistricts(stores, coaches) {
+  const districts = [...new Set([
+    ...stores.flatMap(row => excelSplit(row["区域"])),
+    ...coaches.flatMap(row => excelSplit(row["区域"]))
+  ].filter(Boolean))];
+  return districts.map((district) => {
+    const districtStores = stores.filter(row => excelFieldIncludes(row["区域"], district));
+    const districtCoaches = coaches.filter(row => excelFieldIncludes(row["区域"], district));
+    return {
+      name: district,
+      coaches: districtCoaches.length,
+      coachNames: districtCoaches.map(row => excelText(row["教练"])).filter(Boolean),
+      stores: districtStores.length,
+      storeNames: districtStores.map(row => excelText(row["门店名称"])).filter(Boolean)
+    };
+  });
+}
+
+function excelDistrict(row) {
+  return {
+    name: excelText(row["区域"]),
+    coaches: excelNum(row["教练数"]),
+    coachNames: excelSplit(row["教练名字"] || row["教练名称"] || row["教练名单"]),
+    stores: excelNum(row["门店数"]),
+    storeNames: excelSplit(row["门店名字"] || row["门店名称"] || row["门店名单"])
   };
 }
 
@@ -1249,10 +1842,118 @@ function excelText(value, fallback = "") {
   return String(value).trim() || fallback;
 }
 
+function excelFieldIncludes(value, expected) {
+  const raw = excelText(value);
+  const target = excelText(expected);
+  if (!raw || !target) return false;
+  return excelSplit(raw).some((item) => item === target || normalizeCity(item) === normalizeCity(target));
+}
+
 function excelNum(value, fallback = 0) {
   if (value == null || value === "") return fallback;
   const numeric = Number(String(value).replace(/,/g, "").replace("%", ""));
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function excelSum(rows, key) {
+  return rows.reduce((sum, row) => sum + excelNum(row[key], key === "下单数" || key === "已消课数" ? 1 : 0), 0);
+}
+
+function excelRelationsByCoach(rows) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const coachId = excelText(row["教练ID"]);
+    const storeName = excelText(row["门店名称"]);
+    if (!coachId || !storeName) return;
+    if (!map.has(coachId)) map.set(coachId, []);
+    if (!map.get(coachId).includes(storeName)) map.get(coachId).push(storeName);
+  });
+  return map;
+}
+
+function excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals) {
+  const monthTrialLessons = excelSum(monthTrials, "下单数");
+  const monthDeals = excelSum(monthTrials, "转化数");
+  const yesterdayTrialLessons = excelSum(yesterdayTrials, "下单数");
+  const yesterdayDeals = excelSum(yesterdayTrials, "转化数");
+  return {
+    monthTrialLessons,
+    monthDeals,
+    monthConversionRate: percent(monthDeals, monthTrialLessons),
+    monthRenewals: excelSum(monthRenewals, "续约数") || monthRenewals.length,
+    yesterdayTrialLessons,
+    yesterdayDeals,
+    yesterdayConversionRate: percent(yesterdayDeals, yesterdayTrialLessons),
+    yesterdayRenewals: excelSum(yesterdayRenewals, "续约数") || yesterdayRenewals.length
+  };
+}
+
+function excelOperatingPeriods(periodText) {
+  const parsed = excelParseMonthPeriod(periodText);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekStart = new Date(today);
+  weekStart.setDate(weekStart.getDate() - 6);
+  return {
+    month: parsed || {
+      start: new Date(now.getFullYear(), now.getMonth(), 1),
+      end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    },
+    week: { start: weekStart, end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999) },
+    day: { start: yesterday, end: new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999) }
+  };
+}
+
+function excelParseMonthPeriod(value) {
+  const match = excelText(value).match(/(\d{4})年(\d{1,2})月/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  return {
+    start: new Date(year, monthIndex, 1),
+    end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999)
+  };
+}
+
+function excelRowDate(row, key = "日期") {
+  const value = row[key];
+  if (value instanceof Date) return value;
+  if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
+  const raw = excelText(value);
+  if (!raw) return null;
+  const date = new Date(raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function excelDateInPeriod(date, period) {
+  return date && date >= period.start && date <= period.end;
+}
+
+function excelTruthy(value) {
+  return ["1", "是", "true", "TRUE", "本月新增", "本月新签", "昨日新增"].includes(excelText(value));
+}
+
+function excelPaidStore(row) {
+  return excelText(row["入驻类型"]).includes("付费") || excelNum(row["是否付费"]) > 0;
+}
+
+function excelStoreItem(row) {
+  return { district: excelText(row["区域"]), name: excelText(row["门店名称"]) };
+}
+
+function excelSameCoach(row, coachId, coachName) {
+  return (coachId && excelText(row["教练ID"]) === coachId) || (coachName && excelText(row["教练"]) === coachName);
+}
+
+function excelFormulaLogic() {
+  return [
+    "本月=日期落在基础配置 period 所在自然月的数据；昨日=当前日期前一天的数据；本周=最近7天。",
+    "教练体验课数=体验课流水.下单数求和；转化数=体验课流水.转化数求和；转化率=转化数/体验课数。",
+    "营收完成=体验课流水.金额+续课流水.金额；续课数=续课流水.续约数求和。",
+    "城区教练/门店=教练档案、门店明细按城市+区域分组；服务门店=教练门店关系按教练ID聚合。"
+  ];
 }
 
 function excelSplit(value) {
@@ -1469,6 +2170,7 @@ document.querySelector("#templateButton").addEventListener("click", () => {
   downloadFile("./小铁台球经营仓数据模板.xlsx", "小铁台球经营仓数据模板.xlsx");
 });
 document.querySelector("#uploadButton").addEventListener("click", uploadExcelData);
+document.querySelector("#jsonUploadButton").addEventListener("click", uploadJsonData);
 
 render();
 loadRemoteData(false);
