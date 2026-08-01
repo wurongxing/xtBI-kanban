@@ -1614,9 +1614,10 @@ function jsonBoolean(row, keys) {
 function jsonDate(row, keys) {
   const raw = jsonValue(row, keys);
   if (!raw) return "";
-  const date = new Date(String(raw).replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-"));
+  const date = parseBeijingDate(raw);
   if (Number.isNaN(date.getTime())) return raw;
-  return date.toISOString().slice(0, 10);
+  const parts = beijingDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function normalizeCity(value) {
@@ -1686,29 +1687,30 @@ function isRenewalCourse(name) {
 }
 
 function currentMonthPeriodText() {
-  const now = new Date();
-  return `${now.getFullYear()}年${now.getMonth() + 1}月`;
+  const now = beijingDateParts();
+  return `${now.year}年${now.month}月`;
 }
 
 function monthProgress() {
-  const now = new Date();
-  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return Math.round((now.getDate() / days) * 1000) / 10;
+  const now = beijingDateParts();
+  const days = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();
+  return Math.round((now.day / days) * 1000) / 10;
 }
 
 function dateInCurrentMonthText(value) {
   const date = excelRowDate({ 日期: value });
   if (!date) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  const current = beijingDateParts();
+  const row = beijingDateParts(date);
+  return row.year === current.year && row.month === current.month;
 }
 
 function dateIsYesterdayText(value) {
   const date = excelRowDate({ 日期: value });
   if (!date) return false;
-  const today = new Date();
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  return date >= yesterday && date <= new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
+  const today = beijingDateParts();
+  const yesterday = beijingDate(today.year, today.month - 1, today.day - 1);
+  return date >= yesterday && date <= new Date(yesterday.getTime() + 86400000 - 1);
 }
 
 function excelCityViewRow(r, view, auto, coachRows, districtRows) {
@@ -1973,19 +1975,18 @@ function excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yest
 
 function excelOperatingPeriods(periodText) {
   const parsed = excelParseMonthPeriod(periodText);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const now = beijingDateParts();
+  const today = beijingDate(now.year, now.month - 1, now.day);
+  const yesterday = beijingDate(now.year, now.month - 1, now.day - 1);
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
   return {
     month: parsed || {
-      start: new Date(now.getFullYear(), now.getMonth(), 1),
-      end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+      start: beijingDate(now.year, now.month - 1, 1),
+      end: beijingDate(now.year, now.month, 0, 23, 59, 59, 999)
     },
-    week: { start: weekStart, end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999) },
-    day: { start: yesterday, end: new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999) }
+    week: { start: weekStart, end: new Date(today.getTime() + 86400000 - 1) },
+    day: { start: yesterday, end: new Date(yesterday.getTime() + 86400000 - 1) }
   };
 }
 
@@ -1995,8 +1996,8 @@ function excelParseMonthPeriod(value) {
   const year = Number(match[1]);
   const monthIndex = Number(match[2]) - 1;
   return {
-    start: new Date(year, monthIndex, 1),
-    end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999)
+    start: beijingDate(year, monthIndex, 1),
+    end: beijingDate(year, monthIndex + 1, 0, 23, 59, 59, 999)
   };
 }
 
@@ -2006,12 +2007,41 @@ function excelRowDate(row, key = "日期") {
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = excelText(value);
   if (!raw) return null;
-  const date = new Date(raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-"));
+  const date = parseBeijingDate(raw);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function excelDateInPeriod(date, period) {
   return date && date >= period.start && date <= period.end;
+}
+
+function parseBeijingDate(value) {
+  const normalized = String(value).trim().replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-");
+  const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/);
+  if (localMatch) {
+    const [, year, month, day, hour = "0", minute = "0", second = "0"] = localMatch;
+    return beijingDate(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  }
+  return new Date(normalized);
+}
+
+function beijingDate(year, monthIndex, day, hour = 0, minute = 0, second = 0, millisecond = 0) {
+  return new Date(Date.UTC(year, monthIndex, day, hour - 8, minute, second, millisecond));
+}
+
+function beijingDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(value.year),
+    month: Number(value.month),
+    day: Number(value.day)
+  };
 }
 
 function excelTruthy(value) {

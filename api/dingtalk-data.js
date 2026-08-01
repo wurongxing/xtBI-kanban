@@ -660,18 +660,17 @@ function groupRelationsByCoach(rows) {
 
 function operatingPeriods(periodText) {
   const parsedMonth = parseMonthPeriod(periodText);
-  const now = new Date();
-  const monthStart = parsedMonth?.start || new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = parsedMonth?.end || new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  const todayStart = startOfDay(now);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-  const yesterdayEnd = endOfDay(yesterdayStart);
+  const today = shanghaiDateParts();
+  const monthStart = parsedMonth?.start || shanghaiDate(today.year, today.month - 1, 1);
+  const monthEnd = parsedMonth?.end || shanghaiDate(today.year, today.month, 0, 23, 59, 59, 999);
+  const todayStart = shanghaiDate(today.year, today.month - 1, today.day);
+  const yesterdayStart = shanghaiDate(today.year, today.month - 1, today.day - 1);
+  const yesterdayEnd = new Date(yesterdayStart.getTime() + 86400000 - 1);
   const weekStart = new Date(todayStart);
   weekStart.setDate(weekStart.getDate() - 6);
   return {
     month: { start: monthStart, end: monthEnd },
-    week: { start: weekStart, end: endOfDay(now) },
+    week: { start: weekStart, end: new Date(todayStart.getTime() + 86400000 - 1) },
     day: { start: yesterdayStart, end: yesterdayEnd }
   };
 }
@@ -682,8 +681,8 @@ function parseMonthPeriod(value) {
   const year = Number(match[1]);
   const monthIndex = Number(match[2]) - 1;
   return {
-    start: new Date(year, monthIndex, 1),
-    end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999)
+    start: shanghaiDate(year, monthIndex, 1),
+    end: shanghaiDate(year, monthIndex + 1, 0, 23, 59, 59, 999)
   };
 }
 
@@ -694,6 +693,11 @@ function rowDate(row, key = "日期") {
   const raw = text(value);
   if (!raw) return null;
   const normalized = raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-");
+  const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/);
+  if (localMatch) {
+    const [, year, month, day, hour = "0", minute = "0", second = "0"] = localMatch;
+    return shanghaiDate(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  }
   const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -708,6 +712,25 @@ function startOfDay(date) {
 
 function endOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function shanghaiDate(year, monthIndex, day, hour = 0, minute = 0, second = 0, millisecond = 0) {
+  return new Date(Date.UTC(year, monthIndex, day, hour - 8, minute, second, millisecond));
+}
+
+function shanghaiDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(value.year),
+    month: Number(value.month),
+    day: Number(value.day)
+  };
 }
 
 function sumMetric(rows, key) {
