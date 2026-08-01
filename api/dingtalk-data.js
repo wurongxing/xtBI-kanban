@@ -1,33 +1,9 @@
 "use strict";
 
 const https = require("https");
-const fs = require("fs");
-const path = require("path");
 
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
-const ENTITY_SHEETS = ["门店明细", "教练档案", "教练门店关系", "教练经营", "城区分布"];
-const ENTITY_CITY_KEYS = [
-  "coachesTotal",
-  "coachesNew",
-  "coachesNewMonth",
-  "coachesNewYesterday",
-  "coachesNewMonthNames",
-  "coachesNewYesterdayNames",
-  "storesTotal",
-  "storesPaidTotal",
-  "storesFreeTotal",
-  "storesNew",
-  "storesNewPaid",
-  "storesNewFree",
-  "storesNewMonth",
-  "storesNewYesterday",
-  "storesNewMonthList",
-  "storesNewYesterdayList",
-  "newSignedStores",
-  "coaches",
-  "districts"
-];
 const DEFAULT_REQUIRED_SHEETS = [
   "基础配置",
   "双城经营",
@@ -69,19 +45,6 @@ module.exports = async function handler(req, res) {
     const data = transformWorkbook(sheets);
     res.status(200).json(data);
   } catch (error) {
-    const fallback = process.env.DINGTALK_ALLOW_STATIC_FALLBACK === "true" ? readStaticDataJson() : null;
-    if (fallback) {
-      fallback.meta = fallback.meta || {};
-      fallback.meta.updatedAt = new Date().toLocaleString("zh-CN", {
-        hour12: false,
-        timeZone: "Asia/Shanghai"
-      });
-      fallback.meta.syncMode = "钉钉同步失败，已使用本地兜底数据";
-      fallback.meta.syncError = error.message;
-      fallback.meta.syncDurationMs = Date.now() - startedAt;
-      res.status(200).json(fallback);
-      return;
-    }
     res.status(500).json({
       error: "DINGTALK_SYNC_FAILED",
       message: error.message,
@@ -316,43 +279,6 @@ function extractMatrix(payload) {
   if (payload.data && Array.isArray(payload.data.values)) return payload.data.values;
   if (payload.result && Array.isArray(payload.result.values)) return payload.result.values;
   throw new Error(`无法识别钉钉表格返回结构: ${JSON.stringify(payload).slice(0, 500)}`);
-}
-
-function mergeStaticEntityData(data) {
-  if (!shouldUseStaticEntityData()) return data;
-  const staticData = readStaticDataJson();
-  if (!staticData?.views) return data;
-  for (const view of ["month", "week", "day"]) {
-    const remoteCities = data.views?.[view]?.cities || [];
-    const staticCities = staticData.views?.[view]?.cities || [];
-    for (const city of remoteCities) {
-      const staticCity = staticCities.find((item) => item.name === city.name);
-      if (!staticCity) continue;
-      for (const key of ENTITY_CITY_KEYS) {
-        if (staticCity[key] !== undefined) city[key] = staticCity[key];
-      }
-      city.formulaLogic = staticCity.formulaLogic || city.formulaLogic;
-    }
-  }
-  data.meta.syncMode = "钉钉实时数据 + 教练/门店JSON数据";
-  data.meta.entitySource = "static_json";
-  data.meta.entityUpdatedAt = staticData.meta?.updatedAt || "";
-  return data;
-}
-
-function readStaticDataJson() {
-  const candidates = [
-    path.join(process.cwd(), "data.json"),
-    path.join(__dirname, "..", "data.json")
-  ];
-  for (const file of candidates) {
-    try {
-      if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch (error) {
-      // Ignore static entity fallback errors; DingTalk data can still render.
-    }
-  }
-  return null;
 }
 
 function transformWorkbook(sheets) {

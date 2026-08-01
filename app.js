@@ -1015,7 +1015,7 @@ function accentFor(name = "") {
 }
 
 async function loadRemoteData(manual = false) {
-  const defaultEndpoint = window.location.protocol === "file:" ? "./data.json" : "/api/dingtalk-data";
+  const defaultEndpoint = "/api/dingtalk-data";
   const endpoint = localStorage.getItem("dingtalkEndpoint") || defaultEndpoint;
   if (!endpoint) {
     if (manual) alert("还没有配置数据接口。");
@@ -1025,17 +1025,14 @@ async function loadRemoteData(manual = false) {
     const response = await fetch(endpoint, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const remoteData = await response.json();
-    cockpitData = localEntitySnapshot ? mergeEntitySnapshot(remoteData, localEntitySnapshot) : remoteData;
+    cockpitData = remoteData;
     cockpitData.meta = cockpitData.meta || {};
     if (!cockpitData.meta.syncMode) {
-      cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
-    }
-    if (localEntitySnapshot && endpoint !== "./data.json") {
-      cockpitData.meta.syncMode = "钉钉实时数据 + 本地JSON教练/门店";
+      cockpitData.meta.syncMode = "钉钉实时数据";
     }
     render();
   } catch (error) {
-    cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
+    cockpitData.meta.syncMode = `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
   }
