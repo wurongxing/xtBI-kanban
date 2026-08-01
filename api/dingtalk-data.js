@@ -58,6 +58,19 @@ module.exports = async function handler(req, res) {
     const data = mergeStaticEntityData(transformWorkbook(sheets));
     res.status(200).json(data);
   } catch (error) {
+    const fallback = readStaticDataJson();
+    if (fallback) {
+      fallback.meta = fallback.meta || {};
+      fallback.meta.updatedAt = new Date().toLocaleString("zh-CN", {
+        hour12: false,
+        timeZone: "Asia/Shanghai"
+      });
+      fallback.meta.syncMode = "钉钉同步失败，已使用本地真实教练/门店数据";
+      fallback.meta.syncError = error.message;
+      fallback.meta.syncDurationMs = Date.now() - startedAt;
+      res.status(200).json(fallback);
+      return;
+    }
     res.status(500).json({
       error: "DINGTALK_SYNC_FAILED",
       message: error.message,
@@ -133,11 +146,35 @@ async function fetchSheetValues(sheetId, token, sheetName) {
 
 function rangeForSheet(sheetName) {
   const ranges = parseOptionalJsonEnv("DINGTALK_RANGES", {});
-  if (ranges[sheetName]) return ranges[sheetName];
+  if (ranges[sheetName]) return clampRangeCells(ranges[sheetName]);
   if (["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"].includes(sheetName)) {
-    return process.env.DINGTALK_DETAIL_RANGE || "A1:Z2000";
+    return clampRangeCells(process.env.DINGTALK_DETAIL_RANGE || "A1:Z1000");
   }
-  return process.env.DINGTALK_RANGE || "A1:Z500";
+  return clampRangeCells(process.env.DINGTALK_RANGE || "A1:Z500");
+}
+
+function clampRangeCells(range) {
+  const raw = String(range || "A1:Z500").trim();
+  const match = raw.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if (!match) return raw;
+
+  const [, startColRaw, startRowRaw, endColRaw, endRowRaw] = match;
+  const startCol = columnIndex(startColRaw);
+  const endCol = columnIndex(endColRaw);
+  const startRow = Number(startRowRaw);
+  const endRow = Number(endRowRaw);
+  const columns = Math.max(1, Math.abs(endCol - startCol) + 1);
+  const rows = Math.max(1, Math.abs(endRow - startRow) + 1);
+  const maxRows = Math.floor(30000 / columns);
+  if (rows <= maxRows) return raw.toUpperCase();
+  const safeEndRow = startRow + maxRows - 1;
+  return `${startColRaw.toUpperCase()}${startRow}:${endColRaw.toUpperCase()}${safeEndRow}`;
+}
+
+function columnIndex(label) {
+  return String(label).toUpperCase().split("").reduce((sum, char) => (
+    sum * 26 + char.charCodeAt(0) - 64
+  ), 0);
 }
 
 function appendQuery(url, params) {

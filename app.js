@@ -1026,12 +1026,31 @@ async function loadRemoteData(manual = false) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const remoteData = await response.json();
     cockpitData = localEntitySnapshot ? mergeEntitySnapshot(remoteData, localEntitySnapshot) : remoteData;
-    cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
+    cockpitData.meta = cockpitData.meta || {};
+    if (!cockpitData.meta.syncMode) {
+      cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
+    }
     if (localEntitySnapshot && endpoint !== "./data.json") {
       cockpitData.meta.syncMode = "钉钉实时数据 + 本地JSON教练/门店";
     }
     render();
   } catch (error) {
+    if (endpoint !== "./data.json") {
+      try {
+        const fallbackResponse = await fetch("./data.json", { cache: "no-store" });
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          cockpitData = localEntitySnapshot ? mergeEntitySnapshot(fallbackData, localEntitySnapshot) : fallbackData;
+          cockpitData.meta = cockpitData.meta || {};
+          cockpitData.meta.syncMode = `远程同步失败，已加载本地真实数据：${error.message}`;
+          render();
+          if (manual) alert(`远程同步失败，已加载本地真实教练/门店数据：${error.message}`);
+          return;
+        }
+      } catch (fallbackError) {
+        // Continue to the visible error state below when both remote and local data fail.
+      }
+    }
     cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
