@@ -104,8 +104,31 @@ const fallbackData = {
 };
 
 const AUTO_SYNC_INTERVAL_MS = 30000;
+const ENTITY_CITY_KEYS = [
+  "coachesTotal",
+  "coachesNew",
+  "coachesNewMonth",
+  "coachesNewYesterday",
+  "coachesNewMonthNames",
+  "coachesNewYesterdayNames",
+  "storesTotal",
+  "storesPaidTotal",
+  "storesFreeTotal",
+  "storesNew",
+  "storesNewPaid",
+  "storesNewFree",
+  "storesNewMonth",
+  "storesNewYesterday",
+  "storesNewMonthList",
+  "storesNewYesterdayList",
+  "newSignedStores",
+  "coaches",
+  "districts",
+  "formulaLogic"
+];
 let activeView = "month";
 let cockpitData = fallbackData;
+let localEntitySnapshot = null;
 const coachTableState = {};
 
 const els = {
@@ -1001,14 +1024,54 @@ async function loadRemoteData(manual = false) {
   try {
     const response = await fetch(endpoint, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    cockpitData = await response.json();
+    const remoteData = await response.json();
+    cockpitData = localEntitySnapshot ? mergeEntitySnapshot(remoteData, localEntitySnapshot) : remoteData;
     cockpitData.meta.syncMode = endpoint === "./data.json" ? "静态JSON数据" : "钉钉实时数据";
+    if (localEntitySnapshot && endpoint !== "./data.json") {
+      cockpitData.meta.syncMode = "钉钉实时数据 + 本地JSON教练/门店";
+    }
     render();
   } catch (error) {
     cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
   }
+}
+
+function createEntitySnapshot(data) {
+  return {
+    updatedAt: data?.meta?.updatedAt || new Date().toLocaleString("zh-CN", { hour12: false }),
+    views: Object.fromEntries(["month", "week", "day"].map((view) => [
+      view,
+      (data?.views?.[view]?.cities || []).map((city) => ({
+        name: city.name,
+        values: Object.fromEntries(ENTITY_CITY_KEYS
+          .filter((key) => city[key] !== undefined)
+          .map((key) => [key, structuredCloneSafe(city[key])]))
+      }))
+    ]))
+  };
+}
+
+function mergeEntitySnapshot(data, snapshot) {
+  for (const view of ["month", "week", "day"]) {
+    const cities = data?.views?.[view]?.cities || [];
+    const snapshotCities = snapshot?.views?.[view] || [];
+    for (const city of cities) {
+      const source = snapshotCities.find((item) => item.name === city.name);
+      if (!source) continue;
+      Object.assign(city, structuredCloneSafe(source.values));
+    }
+  }
+  data.meta = data.meta || {};
+  data.meta.entitySource = "local_json";
+  data.meta.entityUpdatedAt = snapshot?.updatedAt || "";
+  return data;
+}
+
+function structuredCloneSafe(value) {
+  if (window.structuredClone) return window.structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
 }
 
 function downloadFile(url, filename) {
@@ -1115,6 +1178,7 @@ async function uploadJsonData() {
         cockpitData = transformExcelSheets(sheets, `本地JSON上传：${files.map((file) => file.name).join("、")}`);
       }
       cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      localEntitySnapshot = createEntitySnapshot(cockpitData);
       localStorage.removeItem("dingtalkEndpoint");
       render();
       alert("JSON数据已读取并刷新看板。系统会按本月、最近7天、昨日自动重新汇总。");
