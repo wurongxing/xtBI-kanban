@@ -295,15 +295,8 @@ function renderCityCenter(view) {
     <article class="panel city-card" id="shenzhenCard"></article>
     <article class="panel city-card" id="guangzhouCard"></article>
   `;
-  els.detailGrid.className = "detail-grid coach-detail-grid";
+  els.detailGrid.className = "detail-grid city-insights-only";
   els.detailGrid.innerHTML = `
-    <article class="panel">
-      <div class="panel-head">
-        <h2>全城教练经营排名</h2>
-        <span>累计 / 月度 / 昨日 / 续客</span>
-      </div>
-      <div id="coachBoard" class="coach-board"></div>
-    </article>
     <article class="panel ai-panel city-insights-panel">
       <div class="panel-head">
         <h2>经营重点提醒</h2>
@@ -315,8 +308,6 @@ function renderCityCenter(view) {
   const centers = view.cities.map(enrichCityCenter);
   renderCity(centers[0], "#shenzhenCard");
   renderCity(centers[1], "#guangzhouCard");
-
-  document.querySelector("#coachBoard").innerHTML = centers.map(coachRankingBoard).join("");
 
   document.querySelector("#aiInsights").innerHTML = `
     <section class="insight-group">
@@ -645,176 +636,6 @@ function flattenDistrictStores(districts) {
     const names = Array.isArray(district.storeNames) ? district.storeNames : [];
     return names.map((name) => ({ district: district.name, name }));
   });
-}
-
-function coachRankingBoard(city) {
-  const columns = coachTableColumns();
-  const state = coachTableState[city.key] || { sortKey: "cumulativeConversionRate", sortDir: "desc", filters: {} };
-  coachTableState[city.key] = state;
-  const sourceCoaches = [...city.coaches].map(normalizeCoach);
-  const coaches = applyCoachTableState(sourceCoaches, state, columns);
-  return `
-    <section class="coach-city" style="--city-color:${city.color}">
-      <div class="coach-city-head">
-        <h3>${city.name}教练排名</h3>
-        <span>${coaches.length}/${city.coaches.length}人</span>
-      </div>
-      <div class="coach-table-wrap">
-        <div class="coach-table">
-          <div class="coach-table-row coach-table-head">
-            ${columns.map((column) => coachHeadCell(city.key, column, state, sourceCoaches)).join("")}
-          </div>
-        ${coaches.map((coach, index) => `
-          <div class="coach-table-row">
-            <b>${index + 1}</b>
-            <strong>${coach.name}</strong>
-            <span>${coach.level}</span>
-            <span>${coach.district}</span>
-            <span class="store-cell">${nameList(coach.storeNames)}</span>
-            <span>${count(coach.cumulativeTrialLessons)}</span>
-            <span>${count(coach.cumulativeDeals)}</span>
-            <span class="${rateClass(coach.cumulativeConversionRate)}">${coach.cumulativeConversionRate}%</span>
-            <span>${count(coach.monthTrialLessons)}</span>
-            <span>${count(coach.monthDeals)}</span>
-            <span class="${rateClass(coach.monthConversionRate)}">${coach.monthConversionRate}%</span>
-            <span>${count(coach.yesterdayTrialLessons)}</span>
-            <span>${count(coach.yesterdayDeals)}</span>
-            <span class="${rateClass(coach.yesterdayConversionRate)}">${coach.yesterdayConversionRate}%</span>
-            <span>${count(coach.users)}</span>
-            <span>${count(coach.renewals)}</span>
-            <span class="${coach.renewalRate < 55 ? "bad" : coach.renewalRate < 66 ? "warn" : "good"}">${coach.renewalRate}%</span>
-          </div>
-        `).join("")}
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function coachTableColumns() {
-  return [
-    { key: "rank", label: "排名", type: "number" },
-    { key: "coachName", label: "教练", type: "text" },
-    { key: "level", label: "等级", type: "text" },
-    { key: "district", label: "区域", type: "text" },
-    { key: "stores", label: "服务门店", type: "text" },
-    { key: "cumulativeTrialLessons", label: "累计体验课", type: "number" },
-    { key: "cumulativeDeals", label: "累计转化", type: "number" },
-    { key: "cumulativeConversionRate", label: "转化率", type: "number" },
-    { key: "monthTrialLessons", label: "月度体验课", type: "number" },
-    { key: "monthDeals", label: "月度转化", type: "number" },
-    { key: "monthConversionRate", label: "月度转化率", type: "number" },
-    { key: "yesterdayTrialLessons", label: "昨日体验课", type: "number" },
-    { key: "yesterdayDeals", label: "昨日成交", type: "number" },
-    { key: "yesterdayConversionRate", label: "昨日转化率", type: "number" },
-    { key: "users", label: "用户数", type: "number" },
-    { key: "renewals", label: "续课数", type: "number" },
-    { key: "renewalRate", label: "续客率", type: "number" }
-  ];
-}
-
-function coachHeadCell(cityKey, column, state, coaches) {
-  const active = state.sortKey === column.key;
-  const arrow = active ? (state.sortDir === "asc" ? "↑" : "↓") : "↕";
-  const options = coachFilterOptions(coaches, column);
-  const selected = Array.isArray(state.filters[column.key]) ? state.filters[column.key] : [];
-  const noneSelected = selected.includes("__NONE__");
-  const activeFilter = noneSelected || (selected.length && selected.length < options.length);
-  const filterCount = noneSelected ? 0 : selected.length;
-  return `
-    <span class="coach-head-cell">
-      <button type="button" data-coach-sort="${column.key}" data-city="${cityKey}" title="点击排序">${column.label}<i>${arrow}</i></button>
-      <details class="coach-filter">
-        <summary class="${activeFilter ? "active" : ""}">筛选${activeFilter ? `(${filterCount})` : ""}</summary>
-        <div class="coach-filter-menu">
-          <div class="coach-filter-sort">
-            <button type="button" data-coach-sort="${column.key}" data-city="${cityKey}" data-sort-dir="asc">升序排序</button>
-            <button type="button" data-coach-sort="${column.key}" data-city="${cityKey}" data-sort-dir="desc">降序排序</button>
-          </div>
-          <input data-coach-filter-search type="search" placeholder="搜索" />
-          <div class="coach-filter-actions">
-            <button type="button" data-coach-filter-all="${column.key}" data-city="${cityKey}">全选</button>
-            <button type="button" data-coach-filter-none="${column.key}" data-city="${cityKey}">全不选</button>
-          </div>
-          <div class="coach-filter-options">
-            ${options.map((option) => `
-              <label>
-                <input type="checkbox" data-coach-filter-option="${column.key}" data-city="${cityKey}" value="${escapeAttr(option)}" ${!noneSelected && (!activeFilter || selected.includes(option)) ? "checked" : ""} />
-                <span>${option}</span>
-              </label>
-            `).join("")}
-          </div>
-          <div class="coach-filter-confirm">
-            <button type="button" data-coach-filter-cancel>取消</button>
-            <button type="button" data-coach-filter-apply="${column.key}" data-city="${cityKey}">确认</button>
-          </div>
-        </div>
-      </details>
-    </span>
-  `;
-}
-
-function coachFilterOptions(coaches, column) {
-  const values = coaches.flatMap((coach, index) => {
-    if (column.key === "stores") return coach.storeNames && coach.storeNames.length ? coach.storeNames : [coachFieldValue(coach, column.key, index)];
-    return [coachFieldValue(coach, column.key, index)];
-  }).filter((value) => value !== "");
-  return [...new Set(values.map(String))].sort((a, b) => {
-    if (column.type === "number") return Number(a) - Number(b);
-    return a.localeCompare(b, "zh-Hans-CN");
-  });
-}
-
-function applyCoachTableState(coaches, state, columns) {
-  const filters = state.filters || {};
-  const filtered = coaches.filter((coach, index) => columns.every((column) => {
-    const selected = Array.isArray(filters[column.key]) ? filters[column.key] : [];
-    if (!selected.length) return true;
-    if (selected.includes("__NONE__")) return false;
-    const values = column.key === "stores"
-      ? (coach.storeNames && coach.storeNames.length ? coach.storeNames : [coachFieldValue(coach, column.key, index)])
-      : [coachFieldValue(coach, column.key, index)];
-    return values.map(String).some((value) => selected.includes(value));
-  }));
-  const sortColumn = columns.find((column) => column.key === state.sortKey) || columns[5];
-  const dir = state.sortDir === "asc" ? 1 : -1;
-  return filtered.sort((a, b) => {
-    const left = coachFieldValue(a, sortColumn.key, coaches.indexOf(a));
-    const right = coachFieldValue(b, sortColumn.key, coaches.indexOf(b));
-    if (sortColumn.type === "number") return (Number(left) - Number(right)) * dir;
-    return String(left).localeCompare(String(right), "zh-Hans-CN") * dir;
-  });
-}
-
-function coachFieldValue(coach, key, index = 0) {
-  const values = {
-    rank: index + 1,
-    coachName: coach.name,
-    level: coach.level,
-    district: coach.district,
-    stores: nameList(coach.storeNames),
-    cumulativeTrialLessons: coach.cumulativeTrialLessons,
-    cumulativeDeals: coach.cumulativeDeals,
-    cumulativeConversionRate: coach.cumulativeConversionRate,
-    monthTrialLessons: coach.monthTrialLessons,
-    monthDeals: coach.monthDeals,
-    monthConversionRate: coach.monthConversionRate,
-    yesterdayTrialLessons: coach.yesterdayTrialLessons,
-    yesterdayDeals: coach.yesterdayDeals,
-    yesterdayConversionRate: coach.yesterdayConversionRate,
-    users: coach.users,
-    renewals: coach.renewals,
-    renewalRate: coach.renewalRate
-  };
-  return values[key] ?? "";
-}
-
-function escapeAttr(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function conversionFunnel() {
@@ -2188,67 +2009,6 @@ document.querySelectorAll("[data-view]").forEach(button => {
     activeView = button.dataset.view;
     document.querySelectorAll("[data-view]").forEach(item => item.classList.toggle("active", item === button));
     render();
-  });
-});
-
-document.addEventListener("click", (event) => {
-  const allButton = event.target.closest("[data-coach-filter-all]");
-  if (allButton) {
-    allButton.closest(".coach-filter-menu").querySelectorAll("[data-coach-filter-option]").forEach((box) => {
-      box.checked = true;
-    });
-    return;
-  }
-
-  const noneButton = event.target.closest("[data-coach-filter-none]");
-  if (noneButton) {
-    noneButton.closest(".coach-filter-menu").querySelectorAll("[data-coach-filter-option]").forEach((box) => {
-      box.checked = false;
-    });
-    return;
-  }
-
-  const applyButton = event.target.closest("[data-coach-filter-apply]");
-  if (applyButton) {
-    const cityKey = applyButton.dataset.city;
-    const key = applyButton.dataset.coachFilterApply;
-    const menu = applyButton.closest(".coach-filter-menu");
-    const boxes = [...menu.querySelectorAll(`[data-coach-filter-option="${key}"]`)];
-    const checked = boxes.filter((box) => box.checked).map((box) => box.value);
-    const state = coachTableState[cityKey] || { sortKey: "cumulativeConversionRate", sortDir: "desc", filters: {} };
-    state.filters[key] = checked.length === 0 ? ["__NONE__"] : checked.length === boxes.length ? [] : checked;
-    coachTableState[cityKey] = state;
-    render();
-    return;
-  }
-
-  const cancelButton = event.target.closest("[data-coach-filter-cancel]");
-  if (cancelButton) {
-    cancelButton.closest("details").open = false;
-    return;
-  }
-
-  const button = event.target.closest("[data-coach-sort]");
-  if (!button) return;
-  const cityKey = button.dataset.city;
-  const key = button.dataset.coachSort;
-  const state = coachTableState[cityKey] || { sortKey: "cumulativeConversionRate", sortDir: "desc", filters: {} };
-  state.sortDir = button.dataset.sortDir || (state.sortKey === key && state.sortDir === "desc" ? "asc" : "desc");
-  state.sortKey = key;
-  coachTableState[cityKey] = state;
-  render();
-});
-
-document.addEventListener("change", (event) => {
-  if (!event.target.closest("[data-coach-filter-option]")) return;
-});
-
-document.addEventListener("input", (event) => {
-  const input = event.target.closest("[data-coach-filter-search]");
-  if (!input) return;
-  const query = input.value.trim().toLowerCase();
-  input.closest(".coach-filter-menu").querySelectorAll("label").forEach((label) => {
-    label.hidden = query && !label.innerText.toLowerCase().includes(query);
   });
 });
 

@@ -66,12 +66,21 @@ async function fetchAllSheets() {
   const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
   const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 4);
+  const warnings = [];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
     const sheetId = resolveSheetId(name, mapping, liveKnown);
     if (!sheetId) return [name, []];
-    return [name, await fetchSheetValues(sheetId, token, name)];
+    try {
+      return [name, await fetchSheetValues(sheetId, token, name)];
+    } catch (error) {
+      if (isCriticalSheet(name)) throw error;
+      warnings.push({ sheet: name, message: error.message });
+      return [name, []];
+    }
   });
-  return Object.fromEntries(entries);
+  const sheets = Object.fromEntries(entries);
+  sheets.__syncWarnings = warnings;
+  return sheets;
 }
 
 async function resolveWorkbookSheetMapping(token) {
@@ -96,16 +105,28 @@ async function resolveWorkbookSheetMapping(token) {
 async function fetchWorkbookSheetMapping(token) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
-  const template = process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE ||
-    "https://api.dingtalk.com/v1.0/doc/workbooks/{workbookId}/sheets";
-  const url = appendQuery(template.replace("{workbookId}", encodeURIComponent(workbookId)), { operatorId });
-  const json = await requestJson(url, {
-    method: "GET",
-    headers: { "x-acs-dingtalk-access-token": token }
-  }, "获取钉钉工作表列表失败");
-  return Object.fromEntries(extractSheetList(json)
-    .map((sheet) => [text(sheet.name || sheet.sheetName || sheet.title || sheet.id), text(sheet.id || sheet.sheetId || sheet.name || sheet.title)])
-    .filter(([name, id]) => name && id));
+  const templates = process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE
+    ? [process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE]
+    : [
+      "https://api.dingtalk.com/v1.0/doc/workbooks/{workbookId}/sheets",
+      "https://api.dingtalk.io/v1.0/doc/workbooks/{workbookId}/sheets"
+    ];
+  let lastError = null;
+  for (const template of templates) {
+    try {
+      const url = appendQuery(template.replace("{workbookId}", encodeURIComponent(workbookId)), { operatorId });
+      const json = await requestJson(url, {
+        method: "GET",
+        headers: { "x-acs-dingtalk-access-token": token }
+      }, "获取钉钉工作表列表失败");
+      return Object.fromEntries(extractSheetList(json)
+        .map((sheet) => [text(sheet.name || sheet.sheetName || sheet.title || sheet.id), text(sheet.id || sheet.sheetId || sheet.name || sheet.title)])
+        .filter(([name, id]) => name && id));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("获取钉钉工作表列表失败");
 }
 
 function extractSheetList(payload) {
@@ -117,9 +138,13 @@ function extractSheetList(payload) {
     payload.data,
     payload.data?.sheets,
     payload.data?.sheetList,
+    payload.data?.value,
+    payload.data?.items,
     payload.result,
     payload.result?.sheets,
-    payload.result?.sheetList
+    payload.result?.sheetList,
+    payload.result?.value,
+    payload.result?.items
   ];
   for (const item of candidates) {
     if (Array.isArray(item)) return item;
@@ -147,6 +172,10 @@ function requiredSheetNames(mapping, liveKnown) {
   }
   return DEFAULT_REQUIRED_SHEETS
     .filter((name) => resolveSheetId(name, mapping, liveKnown));
+}
+
+function isCriticalSheet(name) {
+  return ["双城经营"].includes(name);
 }
 
 function parseSheetNameList(raw) {
@@ -355,7 +384,8 @@ function transformWorkbook(sheets) {
       period: text(meta.period, ""),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }),
       totalGoal: num(meta.totalGoal, 85),
-      syncMode: "钉钉实时数据"
+      syncMode: (sheets.__syncWarnings || []).length ? "钉钉实时数据（部分Sheet跳过）" : "钉钉实时数据",
+      syncWarnings: sheets.__syncWarnings || []
     },
     views,
     departments: departmentRows.map((r) => ({

@@ -163,6 +163,7 @@ button {
 .city-first { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
 .ops-detail-grid { grid-template-columns: 1.25fr 1fr; }
 .coach-detail-grid { grid-template-columns: 1fr; }
+.city-insights-only { grid-template-columns: 1fr; }
 .ops-summary-grid {
   display: grid;
   grid-template-columns: 1fr;
