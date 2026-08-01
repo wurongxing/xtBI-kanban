@@ -34,6 +34,7 @@ const DEFAULT_REQUIRED_SHEETS = [
   "公司KR",
   "六部门OKR",
   "六项目OKR",
+  "个人OKR",
   "门店明细",
   "教练档案",
   "教练门店关系",
@@ -44,6 +45,16 @@ const DEFAULT_REQUIRED_SHEETS = [
   "转化漏斗",
   "经营重点"
 ];
+const SHEET_ALIASES = {
+  "续课流水": ["正课流水", "正课订单", "正课数据", "续课数据"],
+  "六项目OKR": ["项目进度", "六项目", "项目OKR"],
+  "六部门OKR": ["总部运营中心OKR", "部门OKR", "六部门"],
+  "经营重点": ["运营提醒", "经营提醒", "风险预警"]
+};
+const MONEY_KEYS = ["金额", "实付金额", "支付金额", "订单金额", "营收", "收入", "体验课金额", "正课金额"];
+const TRIAL_COUNT_KEYS = ["下单数", "体验课数", "体验课下单数", "订单数"];
+const DEAL_KEYS = ["转化数", "成交数", "成交", "体验课成交数", "正课成交数"];
+const RENEWAL_KEYS = ["续约数", "续课数", "正课数", "购买正课数", "成交数"];
 
 module.exports = async function handler(req, res) {
   setCors(res);
@@ -55,17 +66,17 @@ module.exports = async function handler(req, res) {
   const startedAt = Date.now();
   try {
     const sheets = await fetchAllSheets();
-    const data = mergeStaticEntityData(transformWorkbook(sheets));
+    const data = transformWorkbook(sheets);
     res.status(200).json(data);
   } catch (error) {
-    const fallback = readStaticDataJson();
+    const fallback = process.env.DINGTALK_ALLOW_STATIC_FALLBACK === "true" ? readStaticDataJson() : null;
     if (fallback) {
       fallback.meta = fallback.meta || {};
       fallback.meta.updatedAt = new Date().toLocaleString("zh-CN", {
         hour12: false,
         timeZone: "Asia/Shanghai"
       });
-      fallback.meta.syncMode = "钉钉同步失败，已使用本地真实教练/门店数据";
+      fallback.meta.syncMode = "钉钉同步失败，已使用本地兜底数据";
       fallback.meta.syncError = error.message;
       fallback.meta.syncDurationMs = Date.now() - startedAt;
       res.status(200).json(fallback);
@@ -88,31 +99,89 @@ function setCors(res) {
 }
 
 async function fetchAllSheets() {
-  const mapping = parseJsonEnv("DINGTALK_SHEETS");
   const token = await getDingTalkAccessToken();
-  const sheetNames = requiredSheetNames(mapping);
+  const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
+  const sheetNames = requiredSheetNames(mapping, liveKnown);
   const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 4);
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
-    const sheetId = mapping[name];
+    const sheetId = resolveSheetId(name, mapping, liveKnown);
     if (!sheetId) return [name, []];
     return [name, await fetchSheetValues(sheetId, token, name)];
   });
   return Object.fromEntries(entries);
 }
 
-function requiredSheetNames(mapping) {
+async function resolveWorkbookSheetMapping(token) {
+  const liveMapping = await fetchWorkbookSheetMapping(token).catch(() => ({}));
+  if (Object.keys(liveMapping).length) {
+    return { mapping: liveMapping, liveKnown: true };
+  }
+
+  const envMapping = parseOptionalJsonEnv("DINGTALK_SHEETS", {});
+  if (Object.keys(envMapping).length) {
+    return { mapping: envMapping, liveKnown: false };
+  }
+
+  return {
+    mapping: Object.fromEntries(allKnownSheetNames().map((name) => [name, name])),
+    liveKnown: false
+  };
+}
+
+async function fetchWorkbookSheetMapping(token) {
+  const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
+  const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
+  const template = process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE ||
+    "https://api.dingtalk.com/v1.0/doc/workbooks/{workbookId}/sheets";
+  const url = appendQuery(template.replace("{workbookId}", encodeURIComponent(workbookId)), { operatorId });
+  const json = await requestJson(url, {
+    method: "GET",
+    headers: { "x-acs-dingtalk-access-token": token }
+  }, "获取钉钉工作表列表失败");
+  return Object.fromEntries(extractSheetList(json)
+    .map((sheet) => [text(sheet.name || sheet.sheetName || sheet.title || sheet.id), text(sheet.id || sheet.sheetId || sheet.name || sheet.title)])
+    .filter(([name, id]) => name && id));
+}
+
+function extractSheetList(payload) {
+  if (Array.isArray(payload)) return payload;
+  const candidates = [
+    payload.sheets,
+    payload.sheetList,
+    payload.value,
+    payload.data,
+    payload.data?.sheets,
+    payload.data?.sheetList,
+    payload.result,
+    payload.result?.sheets,
+    payload.result?.sheetList
+  ];
+  for (const item of candidates) {
+    if (Array.isArray(item)) return item;
+  }
+  throw new Error(`无法识别钉钉工作表列表返回结构: ${JSON.stringify(payload).slice(0, 500)}`);
+}
+
+function allKnownSheetNames() {
+  return Array.from(new Set(DEFAULT_REQUIRED_SHEETS.flatMap((name) => [name, ...(SHEET_ALIASES[name] || [])])));
+}
+
+function resolveSheetId(name, mapping, liveKnown) {
+  const aliases = [name, ...(SHEET_ALIASES[name] || [])];
+  for (const alias of aliases) {
+    if (mapping[alias]) return mapping[alias];
+  }
+  return liveKnown ? "" : name;
+}
+
+function requiredSheetNames(mapping, liveKnown) {
   const raw = process.env.DINGTALK_REQUIRED_SHEETS;
   if (raw) {
-    const names = parseSheetNameList(raw).filter((name) => mapping[name]);
+    const names = parseSheetNameList(raw).filter((name) => resolveSheetId(name, mapping, liveKnown));
     if (names.length) return names;
   }
   return DEFAULT_REQUIRED_SHEETS
-    .filter((name) => !shouldUseStaticEntityData() || !ENTITY_SHEETS.includes(name))
-    .filter((name) => mapping[name]);
-}
-
-function shouldUseStaticEntityData() {
-  return process.env.DINGTALK_ENTITY_SOURCE !== "dingtalk";
+    .filter((name) => resolveSheetId(name, mapping, liveKnown));
 }
 
 function parseSheetNameList(raw) {
@@ -539,21 +608,21 @@ function buildAutoCity(city, period, periods, source, relationsByCoach) {
   const yesterdayStores = cityStores.filter((row) => dateInPeriod(rowDate(row, "入驻日期"), periods.day) || isTruthy(row["昨日新增"]));
   const monthCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.month) || isTruthy(row["新增类型"]));
   const yesterdayCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.day) || isTruthy(row["昨日新增"]));
-  const revenueWan = round((sumMetric(scopedTrials, "金额") + sumMetric(scopedRenewals, "金额")) / 10000, 2);
+  const revenueWan = round((sumMetricAny(scopedTrials, MONEY_KEYS) + sumMetricAny(scopedRenewals, MONEY_KEYS)) / 10000, 2);
   return {
     revenueWan,
-    monthRevenueWan: round((sumMetric(monthTrials, "金额") + sumMetric(monthRenewals, "金额")) / 10000, 2),
-    weekRevenueWan: round((sumMetric(weekTrials, "金额") + sumMetric(weekRenewals, "金额")) / 10000, 2),
-    yesterdayRevenueWan: round((sumMetric(yesterdayTrials, "金额") + sumMetric(yesterdayRenewals, "金额")) / 10000, 2),
-    cumulativeTrialLessons: sumMetric(cityTrials, "下单数"),
-    monthTrialLessons: sumMetric(monthTrials, "下单数"),
-    monthDeals: sumMetric(monthTrials, "转化数"),
-    users: sumMetric(cityTrials, "转化数") + sumMetric(cityRenewals, "续约数"),
+    monthRevenueWan: round((sumMetricAny(monthTrials, MONEY_KEYS) + sumMetricAny(monthRenewals, MONEY_KEYS)) / 10000, 2),
+    weekRevenueWan: round((sumMetricAny(weekTrials, MONEY_KEYS) + sumMetricAny(weekRenewals, MONEY_KEYS)) / 10000, 2),
+    yesterdayRevenueWan: round((sumMetricAny(yesterdayTrials, MONEY_KEYS) + sumMetricAny(yesterdayRenewals, MONEY_KEYS)) / 10000, 2),
+    cumulativeTrialLessons: sumMetricAny(cityTrials, TRIAL_COUNT_KEYS, 1),
+    monthTrialLessons: sumMetricAny(monthTrials, TRIAL_COUNT_KEYS, 1),
+    monthDeals: sumMetricAny(monthTrials, DEAL_KEYS),
+    users: sumMetricAny(cityTrials, DEAL_KEYS) + sumMetricAny(cityRenewals, RENEWAL_KEYS, 1),
     coachesTotal: cityCoaches.filter((row) => text(row["在职状态"], "在职") !== "离职").length,
     coachesNewMonth: monthCoaches.length,
     coachesNewYesterday: yesterdayCoaches.length,
-    coachesNewMonthNames: monthCoaches.map((row) => text(row["教练"])).filter(Boolean),
-    coachesNewYesterdayNames: yesterdayCoaches.map((row) => text(row["教练"])).filter(Boolean),
+    coachesNewMonthNames: monthCoaches.map(coachNameFromRow).filter(Boolean),
+    coachesNewYesterdayNames: yesterdayCoaches.map(coachNameFromRow).filter(Boolean),
     storesTotal: cityStores.length,
     storesPaidTotal: cityStores.filter(isPaidStore).length,
     storesFreeTotal: cityStores.filter((row) => !isPaidStore(row)).length,
@@ -576,18 +645,18 @@ function buildAutoCity(city, period, periods, source, relationsByCoach) {
 
 function aggregateCoach(coach, trials, renewals, relationsByCoach, periods) {
   const coachId = text(coach["教练ID"]);
-  const coachName = text(coach["教练"]);
+  const coachName = coachNameFromRow(coach);
   const ownTrial = trials.filter((row) => sameCoach(row, coachId, coachName));
   const ownRenewal = renewals.filter((row) => sameCoach(row, coachId, coachName));
   const monthTrial = ownTrial.filter((row) => dateInPeriod(rowDate(row), periods.month));
   const yesterdayTrial = ownTrial.filter((row) => dateInPeriod(rowDate(row), periods.day));
-  const renewalCount = sumMetric(ownRenewal, "续约数") || ownRenewal.length;
-  const cumulativeTrial = sumMetric(ownTrial, "下单数");
-  const cumulativeDeals = sumMetric(ownTrial, "转化数");
-  const monthTrialCount = sumMetric(monthTrial, "下单数");
-  const monthDeals = sumMetric(monthTrial, "转化数");
-  const yesterdayTrialCount = sumMetric(yesterdayTrial, "下单数");
-  const yesterdayDeals = sumMetric(yesterdayTrial, "转化数");
+  const renewalCount = sumMetricAny(ownRenewal, RENEWAL_KEYS, 1);
+  const cumulativeTrial = sumMetricAny(ownTrial, TRIAL_COUNT_KEYS, 1);
+  const cumulativeDeals = sumMetricAny(ownTrial, DEAL_KEYS);
+  const monthTrialCount = sumMetricAny(monthTrial, TRIAL_COUNT_KEYS, 1);
+  const monthDeals = sumMetricAny(monthTrial, DEAL_KEYS);
+  const yesterdayTrialCount = sumMetricAny(yesterdayTrial, TRIAL_COUNT_KEYS, 1);
+  const yesterdayDeals = sumMetricAny(yesterdayTrial, DEAL_KEYS);
   return {
     name: coachName,
     level: text(coach["教练等级"], "未定级"),
@@ -630,19 +699,19 @@ function aggregateDistricts(city, stores, coaches) {
 }
 
 function aggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals) {
-  const monthTrialLessons = sumMetric(monthTrials, "下单数");
-  const monthDeals = sumMetric(monthTrials, "转化数");
-  const yesterdayTrialLessons = sumMetric(yesterdayTrials, "下单数");
-  const yesterdayDeals = sumMetric(yesterdayTrials, "转化数");
+  const monthTrialLessons = sumMetricAny(monthTrials, TRIAL_COUNT_KEYS, 1);
+  const monthDeals = sumMetricAny(monthTrials, DEAL_KEYS);
+  const yesterdayTrialLessons = sumMetricAny(yesterdayTrials, TRIAL_COUNT_KEYS, 1);
+  const yesterdayDeals = sumMetricAny(yesterdayTrials, DEAL_KEYS);
   return {
     monthTrialLessons,
     monthDeals,
     monthConversionRate: percentValue(monthDeals, monthTrialLessons),
-    monthRenewals: sumMetric(monthRenewals, "续约数") || monthRenewals.length,
+    monthRenewals: sumMetricAny(monthRenewals, RENEWAL_KEYS, 1),
     yesterdayTrialLessons,
     yesterdayDeals,
     yesterdayConversionRate: percentValue(yesterdayDeals, yesterdayTrialLessons),
-    yesterdayRenewals: sumMetric(yesterdayRenewals, "续约数") || yesterdayRenewals.length
+    yesterdayRenewals: sumMetricAny(yesterdayRenewals, RENEWAL_KEYS, 1)
   };
 }
 
@@ -687,7 +756,21 @@ function parseMonthPeriod(value) {
 }
 
 function rowDate(row, key = "日期") {
-  const value = row[key];
+  const value = firstValue(row, [
+    key,
+    "日期",
+    "下单日期",
+    "成交日期",
+    "支付日期",
+    "创建日期",
+    "创建时间",
+    "支付时间",
+    "入驻日期",
+    "入驻时间",
+    "入职日期",
+    "入职时间",
+    "时间"
+  ]);
   if (value instanceof Date) return value;
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = text(value);
@@ -737,8 +820,29 @@ function sumMetric(rows, key) {
   return rows.reduce((sum, row) => sum + num(row[key], key === "下单数" || key === "已消课数" ? 1 : 0), 0);
 }
 
+function sumMetricAny(rows, keys, fallbackPerRow = 0) {
+  return rows.reduce((sum, row) => {
+    for (const key of keys) {
+      if (text(row[key]) !== "") return sum + num(row[key]);
+    }
+    return sum + fallbackPerRow;
+  }, 0);
+}
+
+function firstValue(row, keys) {
+  for (const key of keys) {
+    if (text(row[key]) !== "") return row[key];
+  }
+  return "";
+}
+
+function coachNameFromRow(row) {
+  return text(row["教练"] || row["教练姓名"] || row["姓名"] || row["负责人"]);
+}
+
 function sameCoach(row, coachId, coachName) {
-  return (coachId && text(row["教练ID"]) === coachId) || (coachName && text(row["教练"]) === coachName);
+  const rowCoachName = coachNameFromRow(row);
+  return (coachId && text(row["教练ID"]) === coachId) || (coachName && rowCoachName === coachName);
 }
 
 function isPaidStore(row) {
@@ -779,7 +883,7 @@ function rowsFromMatrix(matrix) {
 }
 
 function isHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "区域"].includes(text(value));
+  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "教练ID", "门店ID", "负责人", "区域", "日期", "类型", "排序"].includes(text(value).trim());
 }
 
 function summarizePeople(rows) {

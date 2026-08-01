@@ -1035,22 +1035,6 @@ async function loadRemoteData(manual = false) {
     }
     render();
   } catch (error) {
-    if (endpoint !== "./data.json") {
-      try {
-        const fallbackResponse = await fetch("./data.json", { cache: "no-store" });
-        if (fallbackResponse.ok) {
-          const fallbackData = await fallbackResponse.json();
-          cockpitData = localEntitySnapshot ? mergeEntitySnapshot(fallbackData, localEntitySnapshot) : fallbackData;
-          cockpitData.meta = cockpitData.meta || {};
-          cockpitData.meta.syncMode = `远程同步失败，已加载本地真实数据：${error.message}`;
-          render();
-          if (manual) alert(`远程同步失败，已加载本地真实教练/门店数据：${error.message}`);
-          return;
-        }
-      } catch (fallbackError) {
-        // Continue to the visible error state below when both remote and local data fail.
-      }
-    }
     cockpitData.meta.syncMode = endpoint === "./data.json" ? "内置示例数据" : `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
