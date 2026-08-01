@@ -1023,7 +1023,7 @@ async function loadRemoteData(manual = false) {
   }
   try {
     const response = await fetch(endpoint, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error(await responseErrorMessage(response));
     const remoteData = await response.json();
     cockpitData = remoteData;
     cockpitData.meta = cockpitData.meta || {};
@@ -1035,6 +1035,16 @@ async function loadRemoteData(manual = false) {
     cockpitData.meta.syncMode = `同步失败：${error.message}`;
     render();
     if (manual) alert(`读取数据失败：${error.message}`);
+  }
+}
+
+async function responseErrorMessage(response) {
+  const fallback = `HTTP ${response.status}`;
+  try {
+    const payload = await response.json();
+    return payload.message ? `${fallback}：${payload.message}` : fallback;
+  } catch (error) {
+    return fallback;
   }
 }
 

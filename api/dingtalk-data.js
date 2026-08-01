@@ -80,7 +80,9 @@ async function resolveWorkbookSheetMapping(token) {
     return { mapping: liveMapping, liveKnown: true };
   }
 
-  const envMapping = parseOptionalJsonEnv("DINGTALK_SHEETS", {});
+  const envMapping = process.env.DINGTALK_USE_ENV_SHEETS === "true"
+    ? parseOptionalJsonEnv("DINGTALK_SHEETS", {})
+    : {};
   if (Object.keys(envMapping).length) {
     return { mapping: envMapping, liveKnown: false };
   }
