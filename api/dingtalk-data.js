@@ -6,18 +6,19 @@ const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
   "基础配置",
-  "双城经营",
-  "公司KR",
-  "六部门OKR",
-  "六项目OKR",
   "门店明细",
   "教练档案",
   "教练门店关系",
   "体验课流水",
   "续课流水",
+  "双城经营",
+  "公司KR",
+  "六部门OKR",
+  "六项目OKR",
   "转化漏斗",
   "经营重点"
 ];
+const CORE_DATA_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"];
 const SHEET_ALIASES = {
   "续课流水": ["正课流水", "正课订单", "正课数据", "续课数据"],
   "六项目OKR": ["项目进度", "六项目", "项目OKR"],
@@ -64,15 +65,12 @@ async function fetchAllSheets(deadlineAt) {
   const token = await getDingTalkAccessToken(deadlineAt);
   const { mapping, liveKnown, warnings: mappingWarnings = [] } = await resolveWorkbookSheetMapping(token, deadlineAt);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
-  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 2);
+  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 8, 4);
+  const allowPartialCore = process.env.DINGTALK_ALLOW_PARTIAL_CORE === "true";
   const warnings = [...mappingWarnings];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
     const sheetId = resolveSheetId(name, mapping, liveKnown);
     if (!sheetId) return [name, []];
-    if (isNearDeadline(deadlineAt)) {
-      warnings.push({ sheet: name, message: "同步函数接近 Vercel 超时上限，已跳过该 Sheet。" });
-      return [name, []];
-    }
     try {
       return [name, await fetchSheetValues(sheetId, token, name, deadlineAt)];
     } catch (error) {
@@ -81,6 +79,12 @@ async function fetchAllSheets(deadlineAt) {
     }
   });
   const sheets = Object.fromEntries(entries);
+  const failedCoreSheets = warnings
+    .filter((warning) => CORE_DATA_SHEETS.includes(warning.sheet))
+    .map((warning) => `${warning.sheet}: ${warning.message}`);
+  if (!allowPartialCore && failedCoreSheets.length) {
+    throw new Error(`核心经营数据未完整同步，已拒绝返回半成品数据。${failedCoreSheets.join("；")}`);
+  }
   sheets.__syncWarnings = warnings;
   return sheets;
 }
@@ -257,7 +261,8 @@ function clampRangeCells(range) {
   const endRow = Number(endRowRaw);
   const columns = Math.max(1, Math.abs(endCol - startCol) + 1);
   const rows = Math.max(1, Math.abs(endRow - startRow) + 1);
-  const maxRows = Math.floor(30000 / columns);
+  const maxCells = clampInt(process.env.DINGTALK_MAX_CELLS, 30000, 200000, 120000);
+  const maxRows = Math.floor(maxCells / columns);
   if (rows <= maxRows) return raw.toUpperCase();
   const safeEndRow = startRow + maxRows - 1;
   return `${startColRaw.toUpperCase()}${startRow}:${endColRaw.toUpperCase()}${safeEndRow}`;
@@ -297,7 +302,7 @@ function requestJson(url, options, label, deadlineAt) {
       reject(new Error(`${label}: 同步函数接近超时上限，已停止新请求`));
       return;
     }
-    const configuredTimeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 6000);
+    const configuredTimeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 5000);
     const remainingMs = deadlineAt ? Math.max(1000, deadlineAt - Date.now() - 1200) : configuredTimeoutMs;
     const timeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     const req = https.request(url, options, (res) => {
@@ -622,10 +627,10 @@ function buildAutoCity(city, period, periods, source, relationsByCoach) {
   const monthRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.month));
   const weekRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.week));
   const yesterdayRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.day));
-  const monthStores = cityStores.filter((row) => dateInPeriod(rowDate(row, "入驻日期"), periods.month) || isTruthy(row["新增类型"]));
-  const yesterdayStores = cityStores.filter((row) => dateInPeriod(rowDate(row, "入驻日期"), periods.day) || isTruthy(row["昨日新增"]));
-  const monthCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.month) || isTruthy(row["新增类型"]));
-  const yesterdayCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.day) || isTruthy(row["昨日新增"]));
+  const monthStores = cityStores.filter((row) => dateInPeriod(storeJoinedDate(row), periods.month));
+  const yesterdayStores = cityStores.filter((row) => dateInPeriod(storeJoinedDate(row), periods.day));
+  const monthCoaches = cityCoaches.filter((row) => dateInPeriod(coachJoinedDate(row), periods.month));
+  const yesterdayCoaches = cityCoaches.filter((row) => dateInPeriod(coachJoinedDate(row), periods.day));
   const revenueWan = round((sumMetricAny(scopedTrials, MONEY_KEYS) + sumMetricAny(scopedRenewals, MONEY_KEYS)) / 10000, 2);
   return {
     revenueWan,
@@ -803,6 +808,38 @@ function rowDate(row, key = "日期") {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function storeJoinedDate(row) {
+  return rowDateFromKeys(row, ["入驻日期", "入驻时间", "签约日期", "签约时间", "创建日期", "创建时间", "新增时间"]);
+}
+
+function coachJoinedDate(row) {
+  return rowDateFromKeys(row, ["入职日期", "入职时间", "加入日期", "加入时间", "创建日期", "创建时间", "新增时间"]);
+}
+
+function rowDateFromKeys(row, keys) {
+  for (const key of keys) {
+    if (text(row[key]) === "") continue;
+    const date = parseCellDate(row[key]);
+    if (date) return date;
+  }
+  return null;
+}
+
+function parseCellDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
+  const raw = text(value);
+  if (!raw) return null;
+  const normalized = raw.replace(/[年月.]/g, "-").replace(/日/g, "").replace(/\//g, "-");
+  const localMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/);
+  if (localMatch) {
+    const [, year, month, day, hour = "0", minute = "0", second = "0"] = localMatch;
+    return shanghaiDate(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  }
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function dateInPeriod(date, period) {
   return date && date >= period.start && date <= period.end;
 }
@@ -865,10 +902,6 @@ function sameCoach(row, coachId, coachName) {
 
 function isPaidStore(row) {
   return text(row["入驻类型"]).includes("付费") || num(row["是否付费"]) > 0;
-}
-
-function isTruthy(value) {
-  return ["1", "是", "true", "TRUE", "本月新增", "本月新签", "昨日新增"].includes(text(value));
 }
 
 function storeItem(row) {
