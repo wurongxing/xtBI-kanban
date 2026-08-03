@@ -561,7 +561,7 @@ function channelPeriod(label, data, prefix) {
 }
 
 function newCoachCard(city) {
-  const monthNames = pickNames(city.coachesNewMonthNames, city.coaches, city.coachesNewMonth || city.coachesNew);
+  const monthNames = pickNames(city.coachesNewMonthNames, city.coaches, city.coachesNewMonth ?? city.coachesNew);
   const yesterdayNames = pickNames(city.coachesNewYesterdayNames, city.coaches, city.coachesNewYesterday);
   return `
     <section class="channel-card roster-card">
@@ -575,14 +575,14 @@ function newCoachCard(city) {
 }
 
 function newStoreCard(city) {
-  const monthStores = pickStores(city.storesNewMonthList, city.districts, city.storesNewMonth || city.storesNew);
+  const monthStores = pickStores(city.storesNewMonthList, city.districts, city.storesNewMonth ?? city.storesNew);
   const yesterdayStores = pickStores(city.storesNewYesterdayList, city.districts, city.storesNewYesterday);
   return `
     <section class="channel-card roster-card">
       <h3>门店端</h3>
       <div class="store-summary">
         ${storeSummaryBlock("入驻门店", city.storesTotal, city.storesPaidTotal, city.storesFreeTotal)}
-        ${storeSummaryBlock("本月新签", city.storesNewMonth || city.storesNew, city.storesNewPaid, city.storesNewFree)}
+        ${storeSummaryBlock("本月新签", city.storesNewMonth ?? city.storesNew, city.storesNewPaid, city.storesNewFree)}
       </div>
       <div class="roster-periods">
         ${rosterPeriod("月度新增门店", monthStores, `${count(monthStores.length)}家`)}
@@ -624,13 +624,25 @@ function rosterItem(item) {
 }
 
 function pickNames(names, coaches, limit) {
+  if (Number(limit) === 0) return [];
   const source = Array.isArray(names) && names.length ? names : (coaches || []).map((coach) => coach.name);
-  return source.filter(Boolean).slice(0, Math.max(Number(limit || source.length), 0));
+  return uniqueBy(source.filter(Boolean), (name) => name).slice(0, Math.max(Number(limit ?? source.length), 0));
 }
 
 function pickStores(stores, districts, limit) {
+  if (Number(limit) === 0) return [];
   const source = Array.isArray(stores) && stores.length ? stores : flattenDistrictStores(districts);
-  return source.slice(0, Math.max(Number(limit || source.length), 0));
+  return uniqueBy(source, (store) => store.id || store.name || store.title).slice(0, Math.max(Number(limit ?? source.length), 0));
+}
+
+function uniqueBy(items, keyFn) {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    const key = String(keyFn(item) || "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function flattenDistrictStores(districts) {
@@ -1765,8 +1777,8 @@ function excelAutoOperatingModel(source) {
 }
 
 function excelAutoCity(city, period, periods, source, relations) {
-  const stores = source.stores.filter(row => excelFieldIncludes(row["城市"], city));
-  const coaches = source.coaches.filter(row => excelFieldIncludes(row["城市"], city));
+  const stores = uniqueRowsBy(source.stores.filter(row => excelFieldIncludes(row["城市"], city)), storeUniqueKey);
+  const coaches = uniqueRowsBy(source.coaches.filter(row => excelFieldIncludes(row["城市"], city)), coachUniqueKey);
   const trials = source.trials.filter(row => excelFieldIncludes(row["城市"], city));
   const renewals = source.renewals.filter(row => excelFieldIncludes(row["城市"], city));
   const scopedTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), period));
@@ -1858,8 +1870,8 @@ function excelAggregateDistricts(stores, coaches) {
     ...coaches.flatMap(row => excelSplit(row["区域"]))
   ].filter(Boolean))];
   return districts.map((district) => {
-    const districtStores = stores.filter(row => excelFieldIncludes(row["区域"], district));
-    const districtCoaches = coaches.filter(row => excelFieldIncludes(row["区域"], district));
+	    const districtStores = uniqueRowsBy(stores.filter(row => excelFieldIncludes(row["区域"], district)), storeUniqueKey);
+	    const districtCoaches = uniqueRowsBy(coaches.filter(row => excelFieldIncludes(row["区域"], district)), coachUniqueKey);
     return {
       name: district,
       coaches: districtCoaches.length,
@@ -2043,7 +2055,25 @@ function excelPaidStore(row) {
 }
 
 function excelStoreItem(row) {
-  return { district: excelText(row["区域"]), name: excelText(row["门店名称"]) };
+  return { id: excelText(row["门店ID"]), district: excelText(row["区域"]), name: excelText(row["门店名称"]) };
+}
+
+function uniqueRowsBy(rows, keyFn) {
+  const seen = new Set();
+  return (rows || []).filter((row) => {
+    const key = String(keyFn(row) || "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function storeUniqueKey(row) {
+  return excelText(row["门店ID"]) || `${excelText(row["城市"])}|${excelText(row["门店名称"])}`;
+}
+
+function coachUniqueKey(row) {
+  return excelText(row["教练ID"]) || `${excelText(row["城市"])}|${excelText(row["教练"])}`;
 }
 
 function excelSameCoach(row, coachId, coachName) {

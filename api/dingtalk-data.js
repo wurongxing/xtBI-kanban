@@ -220,7 +220,9 @@ async function fetchSheetValues(sheetId, token, sheetName, deadlineAt) {
       method: "GET",
       headers: { "x-acs-dingtalk-access-token": token }
     }, `读取钉钉表格失败 sheetId=${sheetId} range=${range}`, deadlineAt);
-    matrices.push(extractMatrix(json));
+    const matrix = extractMatrix(json);
+    if (chunks.length > 1 && matrices.length > 0 && matrixIsEmpty(matrix)) break;
+    matrices.push(matrix);
   }
 
   return matrices.flat();
@@ -268,7 +270,7 @@ function chunkRangeForDingTalk(range) {
   const parsed = parseA1Range(range);
   if (!parsed) return [range];
   const columns = Math.max(1, Math.abs(columnIndex(parsed.endCol) - columnIndex(parsed.startCol)) + 1);
-  const apiMaxCells = clampInt(process.env.DINGTALK_API_MAX_CELLS, 1, 30000, 30000);
+  const apiMaxCells = clampInt(process.env.DINGTALK_API_MAX_CELLS, 1, 8000, 8000);
   const maxRowsPerRequest = Math.max(1, Math.floor(apiMaxCells / columns));
   const chunks = [];
   for (let row = parsed.startRow; row <= parsed.endRow; row += maxRowsPerRequest) {
@@ -332,7 +334,7 @@ function requestJson(url, options, label, deadlineAt) {
       reject(new Error(`${label}: 同步函数接近超时上限，已停止新请求`));
       return;
     }
-    const configuredTimeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 5000);
+    const configuredTimeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 7000, 25000, 9000);
     const remainingMs = deadlineAt ? Math.max(1000, deadlineAt - Date.now() - 1200) : configuredTimeoutMs;
     const timeoutMs = Math.min(configuredTimeoutMs, remainingMs);
     const req = https.request(url, options, (res) => {
@@ -362,6 +364,12 @@ function requestJson(url, options, label, deadlineAt) {
 
 function isNearDeadline(deadlineAt) {
   return Boolean(deadlineAt && Date.now() > deadlineAt - 1500);
+}
+
+function matrixIsEmpty(matrix) {
+  return !Array.isArray(matrix) || matrix.every((row) => (
+    !Array.isArray(row) || row.every((cell) => text(cell) === "")
+  ));
 }
 
 async function mapLimit(items, limit, worker) {
@@ -752,8 +760,8 @@ function buildAutoOperatingModel(source) {
 }
 
 function buildAutoCity(city, period, periods, source, relationsByCoach) {
-  const cityStores = source.stores.filter((row) => text(row["城市"]) === city);
-  const cityCoaches = source.coaches.filter((row) => text(row["城市"]) === city);
+  const cityStores = uniqueRowsBy(source.stores.filter((row) => text(row["城市"]) === city), storeUniqueKey);
+  const cityCoaches = uniqueRowsBy(source.coaches.filter((row) => text(row["城市"]) === city), coachUniqueKey);
   const cityTrials = source.trials.filter((row) => text(row["城市"]) === city);
   const cityRenewals = source.renewals.filter((row) => text(row["城市"]) === city);
   const scopedTrials = cityTrials.filter((row) => dateInPeriod(rowDate(row), period));
@@ -846,8 +854,8 @@ function aggregateDistricts(city, stores, coaches) {
     ...coaches.map((row) => text(row["区域"]))
   ].filter(Boolean)));
   return districts.map((district) => {
-    const districtStores = stores.filter((row) => text(row["区域"]) === district);
-    const districtCoaches = coaches.filter((row) => text(row["区域"]) === district);
+    const districtStores = uniqueRowsBy(stores.filter((row) => text(row["区域"]) === district), storeUniqueKey);
+    const districtCoaches = uniqueRowsBy(coaches.filter((row) => text(row["区域"]) === district), coachUniqueKey);
     return {
       name: district,
       coaches: districtCoaches.length,
@@ -1066,7 +1074,25 @@ function isPaidStore(row) {
 }
 
 function storeItem(row) {
-  return { district: text(row["区域"]), name: text(row["门店名称"]) };
+  return { id: text(row["门店ID"]), district: text(row["区域"]), name: text(row["门店名称"]) };
+}
+
+function uniqueRowsBy(rows, keyFn) {
+  const seen = new Set();
+  return (rows || []).filter((row) => {
+    const key = String(keyFn(row) || "").trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function storeUniqueKey(row) {
+  return text(row["门店ID"]) || `${text(row["城市"])}|${text(row["门店名称"])}`;
+}
+
+function coachUniqueKey(row) {
+  return text(row["教练ID"]) || `${text(row["城市"])}|${text(row["教练"])}`;
 }
 
 function formulaLogic() {
