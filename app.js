@@ -593,7 +593,7 @@ function newStoreCard(city) {
         ${storeSummaryBlock("本月新签", city.storesNewMonth || city.storesNew, city.storesNewPaid, city.storesNewFree)}
       </div>
       <div class="roster-periods">
-        ${rosterPeriod("月度新增门店", monthStores, `${count(monthStores.length)}家`)}
+        ${rosterPeriod("本月新签门店", monthStores, `${count(monthStores.length)}家`)}
         ${rosterPeriod("昨日新增门店", yesterdayStores, `${count(yesterdayStores.length)}家`)}
       </div>
     </section>
@@ -1224,8 +1224,8 @@ function jsonStoreRow(row) {
     "入驻类型": jsonPaid(row) ? "付费入驻" : "免费入驻",
     "是否付费": jsonPaid(row) ? 1 : 0,
     "入驻日期": created,
-    "新增类型": dateInCurrentMonthText(created) ? "本月新增" : "",
-    "昨日新增": dateIsYesterdayText(created) ? "昨日新增" : ""
+    "新增类型": jsonValue(row, ["新增类型", "new_type", "newType", "新增状态"]) || "存量",
+    "昨日新增": jsonTruthy(jsonValue(row, ["昨日新增", "is_yesterday_new", "yesterdayNew"])) ? "昨日新增" : ""
   };
 }
 
@@ -1243,8 +1243,8 @@ function jsonCoachRow(row) {
     "教练等级": coachLevelLabel(jsonValue(row, ["教练等级", "level", "coach_level"])),
     "在职状态": coachStatusLabel(jsonValue(row, ["在职状态", "status_name", "status"])),
     "入职日期": created,
-    "新增类型": dateInCurrentMonthText(created) ? "本月新增" : "",
-    "昨日新增": dateIsYesterdayText(created) ? "昨日新增" : "",
+    "新增类型": jsonValue(row, ["新增类型", "new_type", "newType", "新增状态"]) || "存量",
+    "昨日新增": jsonTruthy(jsonValue(row, ["昨日新增", "is_yesterday_new", "yesterdayNew"])) ? "昨日新增" : "",
     "服务门店": jsonValue(row, ["服务门店", "site_names", "store_names"]) || serviceStoreCountLabel(jsonValue(row, ["site_count", "门店数", "服务门店数"]))
   };
 }
@@ -1437,6 +1437,10 @@ function jsonNumber(row, keys, fallback = 0) {
 
 function jsonBoolean(row, keys) {
   return ["1", "true", "TRUE", "是", "已", "yes"].includes(jsonValue(row, keys));
+}
+
+function jsonTruthy(value) {
+  return ["1", "true", "TRUE", "是", "已", "yes", "昨日新增"].includes(String(value || "").trim());
 }
 
 function jsonDate(row, keys) {
@@ -1633,10 +1637,10 @@ function excelAutoCity(city, period, periods, source, relations) {
   const monthRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.month));
   const weekRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.week));
   const yesterdayRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.day));
-  const monthStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.month) || excelTruthy(row["新增类型"]));
-  const yesterdayStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.day) || excelTruthy(row["昨日新增"]));
-  const monthCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.month) || excelTruthy(row["新增类型"]));
-  const yesterdayCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.day) || excelTruthy(row["昨日新增"]));
+  const monthStores = stores.filter(row => excelNewRowInPeriod(row, "入驻日期", periods.month, "month"));
+  const yesterdayStores = stores.filter(row => excelNewRowInPeriod(row, "入驻日期", periods.day, "day"));
+  const monthCoaches = coaches.filter(row => excelNewRowInPeriod(row, "入职日期", periods.month, "month"));
+  const yesterdayCoaches = coaches.filter(row => excelNewRowInPeriod(row, "入职日期", periods.day, "day"));
   return {
     revenueWan: Math.round((excelSum(scopedTrials, "金额") + excelSum(scopedRenewals, "金额")) / 100) / 100,
     monthRevenueWan: Math.round((excelSum(monthTrials, "金额") + excelSum(monthRenewals, "金额")) / 100) / 100,
@@ -1878,6 +1882,21 @@ function excelTruthy(value) {
 
 function excelPaidStore(row) {
   return excelText(row["入驻类型"]).includes("付费") || excelNum(row["是否付费"]) > 0;
+}
+
+function excelNewRowInPeriod(row, dateKey, period, scope) {
+  if (excelStockRow(row)) return false;
+  if (scope === "day" && excelTruthy(row["昨日新增"])) return true;
+  if (scope === "month" && excelExplicitMonthNew(row)) return true;
+  return excelDateInPeriod(excelRowDate(row, dateKey), period);
+}
+
+function excelStockRow(row) {
+  return /存量|历史|已有|老数据|非新增/.test(excelText(row["新增类型"] || row["新增状态"] || row["数据类型"]));
+}
+
+function excelExplicitMonthNew(row) {
+  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(excelText(row["新增类型"] || row["新增状态"] || row["数据类型"]));
 }
 
 function excelStoreItem(row) {

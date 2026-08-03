@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-03-stable-dingtalk-partial-sync";
+const API_VERSION = "2026-08-03-stable-dingtalk-partial-sync-v3";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -20,6 +20,13 @@ const DEFAULT_REQUIRED_SHEETS = [
   "经营重点"
 ];
 const DETAIL_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"];
+const SHEET_COLUMN_LIMITS = {
+  "门店明细": "M",
+  "教练档案": "K",
+  "教练门店关系": "H",
+  "体验课流水": "Q",
+  "续课流水": "Q"
+};
 const SHEET_ALIASES = {
   "续课流水": ["正课流水", "正课订单", "正课数据", "续课数据"],
   "六项目OKR": ["项目进度", "六项目", "项目OKR"],
@@ -64,7 +71,7 @@ async function fetchAllSheets() {
   const token = await getDingTalkAccessToken();
   const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
-  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 4, 1);
+  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 2, 4, 2);
   const warnings = [];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
     const sheetId = resolveSheetId(name, mapping, liveKnown);
@@ -220,7 +227,7 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
     warnings.push(syncWarning(sheetName, headerRange, error.message));
   }
 
-  const chunkRows = clampInt(process.env.DINGTALK_CHUNK_ROWS, 40, 220, 120);
+  const chunkRows = clampInt(process.env.DINGTALK_CHUNK_ROWS, 200, 350, 260);
   const chunks = [];
   for (let row = parsed.startRow + 1; row <= parsed.endRow; row += chunkRows) {
     const endRow = Math.min(row + chunkRows - 1, parsed.endRow);
@@ -228,8 +235,15 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
   }
 
   const matrices = [];
+  let consecutiveBlankChunks = 0;
   for (const chunkRange of chunks) {
     const matrix = await fetchChunkWithSplit(sheetId, token, sheetName, chunkRange, warnings);
+    if (isBlankMatrix(matrix)) {
+      consecutiveBlankChunks += 1;
+      if (consecutiveBlankChunks >= 1) break;
+      continue;
+    }
+    consecutiveBlankChunks = 0;
     if (matrix.length) matrices.push(matrix);
   }
 
@@ -308,15 +322,22 @@ function rangeForSheet(sheetName) {
   if (ranges[sheetName]) return clampRangeCells(ranges[sheetName]);
   if (sheetName === "双城经营") return "A1:Z20";
   if (DETAIL_SHEETS.includes(sheetName)) {
-    return clampRangeCells(process.env.DINGTALK_DETAIL_RANGE || "A1:Z700");
+    return detailRangeForSheet(sheetName);
   }
   return clampRangeCells(process.env.DINGTALK_RANGE || "A1:Z80");
+}
+
+function detailRangeForSheet(sheetName) {
+  const base = parseA1Range(process.env.DINGTALK_DETAIL_RANGE || "A1:Z700");
+  const endRow = base?.endRow || 700;
+  const endCol = SHEET_COLUMN_LIMITS[sheetName] || base?.endCol || "Z";
+  return clampRangeCells(`A1:${endCol}${endRow}`);
 }
 
 function shouldChunkRange(sheetName, range) {
   if (!DETAIL_SHEETS.includes(sheetName)) return false;
   const parsed = parseA1Range(range);
-  return Boolean(parsed && parsed.rowCount > clampInt(process.env.DINGTALK_CHUNK_ROWS, 40, 220, 120));
+  return Boolean(parsed && parsed.rowCount > clampInt(process.env.DINGTALK_CHUNK_ROWS, 200, 350, 260));
 }
 
 function parseA1Range(range) {
@@ -335,6 +356,12 @@ function parseA1Range(range) {
     endRow: safeEnd,
     rowCount: safeEnd - safeStart + 1
   };
+}
+
+function isBlankMatrix(matrix) {
+  return !Array.isArray(matrix) || matrix.length === 0 || matrix.every((row) => (
+    !Array.isArray(row) || row.every((cell) => text(cell) === "")
+  ));
 }
 
 function clampRangeCells(range) {
@@ -714,10 +741,10 @@ function buildAutoCity(city, period, periods, source, relationsByCoach) {
   const monthRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.month));
   const weekRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.week));
   const yesterdayRenewals = cityRenewals.filter((row) => dateInPeriod(rowDate(row), periods.day));
-  const monthStores = cityStores.filter((row) => dateInPeriod(rowDate(row, "入驻日期"), periods.month) || isTruthy(row["新增类型"]));
-  const yesterdayStores = cityStores.filter((row) => dateInPeriod(rowDate(row, "入驻日期"), periods.day) || isTruthy(row["昨日新增"]));
-  const monthCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.month) || isTruthy(row["新增类型"]));
-  const yesterdayCoaches = cityCoaches.filter((row) => dateInPeriod(rowDate(row, "入职日期"), periods.day) || isTruthy(row["昨日新增"]));
+  const monthStores = cityStores.filter((row) => isNewRowInPeriod(row, "入驻日期", periods.month, "month"));
+  const yesterdayStores = cityStores.filter((row) => isNewRowInPeriod(row, "入驻日期", periods.day, "day"));
+  const monthCoaches = cityCoaches.filter((row) => isNewRowInPeriod(row, "入职日期", periods.month, "month"));
+  const yesterdayCoaches = cityCoaches.filter((row) => isNewRowInPeriod(row, "入职日期", periods.day, "day"));
   const revenueWan = round((sumMetricAny(scopedTrials, MONEY_KEYS) + sumMetricAny(scopedRenewals, MONEY_KEYS)) / 10000, 2);
   return {
     revenueWan,
@@ -792,12 +819,12 @@ function aggregateCoach(coach, trials, renewals, relationsByCoach, periods) {
 
 function aggregateDistricts(city, stores, coaches) {
   const districts = Array.from(new Set([
-    ...stores.map((row) => text(row["区域"])),
-    ...coaches.map((row) => text(row["区域"]))
+    ...stores.flatMap((row) => splitDistricts(row["区域"])),
+    ...coaches.flatMap((row) => splitDistricts(row["区域"]))
   ].filter(Boolean)));
   return districts.map((district) => {
-    const districtStores = stores.filter((row) => text(row["区域"]) === district);
-    const districtCoaches = coaches.filter((row) => text(row["区域"]) === district);
+    const districtStores = stores.filter((row) => rowHasDistrict(row, district));
+    const districtCoaches = coaches.filter((row) => rowHasDistrict(row, district));
     return {
       name: district,
       coaches: districtCoaches.length,
@@ -806,6 +833,18 @@ function aggregateDistricts(city, stores, coaches) {
       storeNames: districtStores.map((row) => text(row["门店名称"])).filter(Boolean)
     };
   });
+}
+
+function splitDistricts(value) {
+  return splitNames(value).map(normalizeDistrict).filter(Boolean);
+}
+
+function rowHasDistrict(row, district) {
+  return splitDistricts(row["区域"]).includes(normalizeDistrict(district));
+}
+
+function normalizeDistrict(value) {
+  return text(value).replace(/行政区$/, "区");
 }
 
 function aggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yesterdayRenewals) {
@@ -957,6 +996,21 @@ function sameCoach(row, coachId, coachName) {
 
 function isPaidStore(row) {
   return text(row["入驻类型"]).includes("付费") || num(row["是否付费"]) > 0;
+}
+
+function isNewRowInPeriod(row, dateKey, period, scope) {
+  if (isStockRow(row)) return false;
+  if (scope === "day" && isTruthy(row["昨日新增"])) return true;
+  if (scope === "month" && isExplicitMonthNew(row)) return true;
+  return dateInPeriod(rowDate(row, dateKey), period);
+}
+
+function isStockRow(row) {
+  return /存量|历史|已有|老数据|非新增/.test(text(row["新增类型"] || row["新增状态"] || row["数据类型"]));
+}
+
+function isExplicitMonthNew(row) {
+  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(text(row["新增类型"] || row["新增状态"] || row["数据类型"]));
 }
 
 function isTruthy(value) {
