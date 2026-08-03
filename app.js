@@ -104,7 +104,6 @@ const fallbackData = {
 };
 
 const AUTO_SYNC_INTERVAL_MS = 30000;
-const DINGTALK_SYNC_ENABLED_KEY = "dingtalkSyncEnabled";
 const ENTITY_CITY_KEYS = [
   "coachesTotal",
   "coachesNew",
@@ -272,8 +271,7 @@ function render() {
   const view = cockpitData.views[activeView];
   els.period.textContent = `数据周期：${cockpitData.meta.period}`;
   els.updated.textContent = `更新于：${cockpitData.meta.updatedAt}`;
-  els.sync.textContent = `数据同步：${syncEnabled() ? "钉钉开启" : "钉钉关闭"} / ${cockpitData.meta.syncMode}`;
-  updateSyncButton();
+  els.sync.textContent = syncStatusText(cockpitData.meta);
   els.totalGoal.textContent = `${cockpitData.meta.totalGoal}万`;
   els.totalCompleted.textContent = money(view.mission.completed);
   els.timeProgress.textContent = `${view.mission.time}%`;
@@ -289,6 +287,16 @@ function render() {
   }
 
   renderCityCenter(view);
+}
+
+function syncStatusText(meta = {}) {
+  const warningCount = Number(meta.syncWarningCount || (Array.isArray(meta.syncWarnings) ? meta.syncWarnings.length : 0));
+  if (warningCount > 0) {
+    const sheets = Array.from(new Set((meta.syncWarnings || []).map((item) => item.sheet).filter(Boolean))).slice(0, 4);
+    const sheetText = sheets.length ? `：${sheets.join("、")}` : "";
+    return `钉钉同步：部分成功（${warningCount}个分段跳过${sheetText}）`;
+  }
+  return `钉钉同步：${meta.syncMode || "未同步"}`;
 }
 
 function renderCityCenter(view) {
@@ -561,7 +569,7 @@ function channelPeriod(label, data, prefix) {
 }
 
 function newCoachCard(city) {
-  const monthNames = pickNames(city.coachesNewMonthNames, city.coaches, city.coachesNewMonth ?? city.coachesNew);
+  const monthNames = pickNames(city.coachesNewMonthNames, city.coaches, city.coachesNewMonth || city.coachesNew);
   const yesterdayNames = pickNames(city.coachesNewYesterdayNames, city.coaches, city.coachesNewYesterday);
   return `
     <section class="channel-card roster-card">
@@ -575,14 +583,14 @@ function newCoachCard(city) {
 }
 
 function newStoreCard(city) {
-  const monthStores = pickStores(city.storesNewMonthList, city.districts, city.storesNewMonth ?? city.storesNew);
+  const monthStores = pickStores(city.storesNewMonthList, city.districts, city.storesNewMonth || city.storesNew);
   const yesterdayStores = pickStores(city.storesNewYesterdayList, city.districts, city.storesNewYesterday);
   return `
     <section class="channel-card roster-card">
       <h3>门店端</h3>
       <div class="store-summary">
         ${storeSummaryBlock("入驻门店", city.storesTotal, city.storesPaidTotal, city.storesFreeTotal)}
-        ${storeSummaryBlock("本月新签", city.storesNewMonth ?? city.storesNew, city.storesNewPaid, city.storesNewFree)}
+        ${storeSummaryBlock("本月新签", city.storesNewMonth || city.storesNew, city.storesNewPaid, city.storesNewFree)}
       </div>
       <div class="roster-periods">
         ${rosterPeriod("月度新增门店", monthStores, `${count(monthStores.length)}家`)}
@@ -624,25 +632,13 @@ function rosterItem(item) {
 }
 
 function pickNames(names, coaches, limit) {
-  if (Number(limit) === 0) return [];
   const source = Array.isArray(names) && names.length ? names : (coaches || []).map((coach) => coach.name);
-  return uniqueBy(source.filter(Boolean), (name) => name).slice(0, Math.max(Number(limit ?? source.length), 0));
+  return source.filter(Boolean).slice(0, Math.max(Number(limit || source.length), 0));
 }
 
 function pickStores(stores, districts, limit) {
-  if (Number(limit) === 0) return [];
   const source = Array.isArray(stores) && stores.length ? stores : flattenDistrictStores(districts);
-  return uniqueBy(source, (store) => store.id || store.name || store.title).slice(0, Math.max(Number(limit ?? source.length), 0));
-}
-
-function uniqueBy(items, keyFn) {
-  const seen = new Set();
-  return (items || []).filter((item) => {
-    const key = String(keyFn(item) || "").trim();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return source.slice(0, Math.max(Number(limit || source.length), 0));
 }
 
 function flattenDistrictStores(districts) {
@@ -850,11 +846,6 @@ function accentFor(name = "") {
 }
 
 async function loadRemoteData(manual = false) {
-  if (!syncEnabled()) {
-    if (manual) alert("钉钉同步已关闭；当前使用本地上传或页面现有数据。");
-    render();
-    return;
-  }
   const defaultEndpoint = "/api/dingtalk-data";
   const endpoint = localStorage.getItem("dingtalkEndpoint") || defaultEndpoint;
   if (!endpoint) {
@@ -872,33 +863,11 @@ async function loadRemoteData(manual = false) {
     }
     render();
   } catch (error) {
-    cockpitData.meta.syncMode = `同步失败：${error.message}`;
+    cockpitData.meta.syncMode = `同步失败：${shortError(error.message)}`;
+    cockpitData.meta.syncWarningCount = 0;
     render();
-    if (manual) alert(`读取数据失败：${error.message}`);
+    if (manual) alert(`读取数据失败：${shortError(error.message, 500)}`);
   }
-}
-
-function syncEnabled() {
-  return localStorage.getItem(DINGTALK_SYNC_ENABLED_KEY) !== "false";
-}
-
-function setSyncEnabled(enabled) {
-  localStorage.setItem(DINGTALK_SYNC_ENABLED_KEY, enabled ? "true" : "false");
-  updateSyncButton();
-}
-
-function toggleRemoteSync() {
-  const enabled = !syncEnabled();
-  setSyncEnabled(enabled);
-  cockpitData.meta = cockpitData.meta || {};
-  cockpitData.meta.syncMode = enabled ? "钉钉同步已开启" : "钉钉同步已关闭";
-  render();
-  if (enabled) loadRemoteData(true);
-}
-
-function updateSyncButton() {
-  const button = document.querySelector("#syncButton");
-  if (button) button.textContent = syncEnabled() ? "关闭钉钉同步" : "开启钉钉同步";
 }
 
 async function responseErrorMessage(response) {
@@ -909,6 +878,11 @@ async function responseErrorMessage(response) {
   } catch (error) {
     return fallback;
   }
+}
+
+function shortError(message, maxLength = 180) {
+  const normalized = String(message || "").replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
 }
 
 function createEntitySnapshot(data) {
@@ -1008,13 +982,12 @@ async function uploadExcelData() {
     try {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-	      cockpitData = transformExcelWorkbook(workbook);
-	      cockpitData.meta.syncMode = `本地Excel上传：${file.name}`;
-	      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
-	      setSyncEnabled(false);
-	      localStorage.removeItem("dingtalkEndpoint");
-	      render();
-	      alert("Excel数据已读取并刷新看板，钉钉同步已自动关闭。需要恢复实时同步时，点击“开启钉钉同步”。");
+      cockpitData = transformExcelWorkbook(workbook);
+      cockpitData.meta.syncMode = `本地Excel上传：${file.name}`;
+      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      localStorage.removeItem("dingtalkEndpoint");
+      render();
+      alert("Excel数据已读取并刷新看板。注意：这是当前浏览器本地预览；要让所有人实时看到，请继续配置钉钉同步。");
     } catch (error) {
       alert(`Excel读取失败：${error.message}`);
     }
@@ -1051,12 +1024,11 @@ async function uploadJsonData() {
         const sheets = jsonPayloadsToSheets(payloads);
         cockpitData = transformExcelSheets(sheets, `本地JSON上传：${files.map((file) => file.name).join("、")}`);
       }
-	      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
-	      localEntitySnapshot = createEntitySnapshot(cockpitData);
-	      setSyncEnabled(false);
-	      localStorage.removeItem("dingtalkEndpoint");
-	      render();
-	      alert("JSON数据已读取并刷新看板，钉钉同步已自动关闭。");
+      cockpitData.meta.updatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+      localEntitySnapshot = createEntitySnapshot(cockpitData);
+      localStorage.removeItem("dingtalkEndpoint");
+      render();
+      alert("JSON数据已读取并刷新看板。系统会按本月、最近7天、昨日自动重新汇总。");
     } catch (error) {
       alert(`JSON读取失败：${error.message}`);
     }
@@ -1067,9 +1039,9 @@ async function uploadJsonData() {
 function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const metaRows = excelRows(sheets["基础配置"]);
   const cityRows = excelRows(sheets["双城经营"]);
-  const krRows = normalizeExcelCompanyKrRows(excelRows(firstSheet(sheets, ["公司KR", "公司OKR"])));
-  const departmentRows = normalizeExcelDepartmentRows(excelRows(firstSheet(sheets, ["六部门OKR", "部门OKR"])));
-  const projectRows = normalizeExcelProjectRows(excelRows(firstSheet(sheets, ["六项目OKR", "项目OKR", "项目进度"])));
+  const krRows = excelRows(sheets["公司KR"]);
+  const departmentRows = excelRows(sheets["六部门OKR"]);
+  const projectRows = excelRows(sheets["六项目OKR"]);
   const personRows = excelRows(sheets["个人OKR"]);
   const coachRows = excelRows(sheets["教练经营"]);
   const districtRows = excelRows(sheets["城区分布"]);
@@ -1077,8 +1049,8 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const storeRows = excelRows(sheets["门店明细"]);
   const coachProfileRows = excelRows(sheets["教练档案"]);
   const relationRows = excelRows(sheets["教练门店关系"]);
-  const trialRows = normalizeExcelTrialRows(excelRows(firstSheet(sheets, ["体验课流水", "体验课订单"])));
-  const renewalRows = normalizeExcelRenewalRows(excelRows(firstSheet(sheets, ["续课流水", "正课流水", "正课订单"])));
+  const trialRows = excelRows(sheets["体验课流水"]);
+  const renewalRows = excelRows(sheets["续课流水"]);
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
   const autoModel = excelAutoOperatingModel({
     meta,
@@ -1142,123 +1114,6 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
     peopleDetails: personRows,
     conversionFunnel: excelFunnel(funnelRows)
   };
-}
-
-function firstSheet(sheets, names) {
-  for (const name of names) {
-    if (sheets[name]) return sheets[name];
-  }
-  return [];
-}
-
-function normalizeExcelCompanyKrRows(rows) {
-  return rows.map((row) => {
-    if (excelText(row.period_type)) return row;
-    const target = excelFirst(row, ["目标2", "目标值", "目标"]);
-    const done = excelFirst(row, ["实际", "实际完成", "完成"]);
-    return {
-      ...row,
-      period_type: "month",
-      "KR编号": excelFirst(row, ["KR编号", "编号"]),
-      "KR名称": excelFirst(row, ["KR名称", "目标"]),
-      "目标": target,
-      "完成": done,
-      "完成率_%": percent(excelNum(done), excelNum(target)),
-      "负责人": excelText(row["负责人"]),
-      "支持部门": excelText(row["支持部门"] || row["负责人"]),
-      "颜色": excelText(row["颜色"], excelColorByRate(percent(excelNum(done), excelNum(target))))
-    };
-  });
-}
-
-function normalizeExcelDepartmentRows(rows) {
-  return rows.map((row) => {
-    if (excelText(row.Objective)) return row;
-    const target = excelFirst(row, ["目标", "目标值"]);
-    const done = excelFirst(row, ["实际", "实际完成"]);
-    return {
-      ...row,
-      "部门": excelText(row["部门"]),
-      "Objective": excelText(row["部门O"] || row["Objective"]),
-      "负责人": excelText(row["负责人"] || row["部门负责人"]),
-      "目标值": target,
-      "实际完成": done,
-      "单位": excelText(row["单位"]),
-      "完成率_%": percent(excelNum(done), excelNum(target)),
-      "关键KR": excelText(row["关键KR"] || row["KR名称"])
-    };
-  });
-}
-
-function normalizeExcelProjectRows(rows) {
-  return rows.map((row) => {
-    if (excelText(row.Objective)) return row;
-    const target = excelFirst(row, ["目标", "目标值"]);
-    const done = excelFirst(row, ["实际", "实际完成"]);
-    return {
-      ...row,
-      "项目": excelText(row["项目"]),
-      "Objective": excelText(row["项目O"] || row["Objective"]),
-      "负责人": excelText(row["负责人"]),
-      "目标值": target,
-      "实际完成": done,
-      "单位": excelText(row["单位"]),
-      "完成率_%": percent(excelNum(done), excelNum(target)),
-      "关键KR": excelText(row["关键KR"] || row["KR名称"])
-    };
-  });
-}
-
-function normalizeExcelTrialRows(rows) {
-  return rows.map((row) => {
-    const status = excelText(excelFirst(row, ["状态", "订单状态", "下单时间1", "跟进情况"]));
-    const refunded = /退款|已退|取消/.test(status);
-    const converted = excelText(row["转正课时间"] || row["转正课时间1"]) !== "";
-    const paid = excelNum(excelFirst(row, ["金额", "实付金额", "实际支付", "支付金额", "课程价格"]));
-    return {
-      ...row,
-      "日期": excelFirst(row, ["日期", "下单时间", "支付时间", "创建时间"]),
-      "城市": normalizeCity(excelFirst(row, ["城市", "分配城市", "分配区域"])),
-      "区域": normalizeDistrict(excelFirst(row, ["区域", "分配区域"])),
-      "教练": excelText(row["教练"]),
-      "门店名称": excelFirst(row, ["门店名称", "上课门店"]),
-      "课程名称": excelFirst(row, ["课程名称", "课程种类"]),
-      "下单数": refunded ? 0 : excelNum(row["下单数"], 1),
-      "转化数": !refunded && converted ? 1 : excelNum(row["转化数"]),
-      "已消课数": !refunded && /已消课|已上课|完成/.test(status) ? 1 : excelNum(row["已消课数"]),
-      "金额": refunded ? 0 : paid,
-      "渠道": excelFirst(row, ["渠道", "来源"]),
-      "状态": status
-    };
-  });
-}
-
-function normalizeExcelRenewalRows(rows) {
-  return rows.map((row) => {
-    const status = excelText(excelFirst(row, ["状态", "订单状态", "续课状态", "续费情况", "课程完成进度"]));
-    const refunded = /退款|已退|取消/.test(status);
-    const paid = excelNum(excelFirst(row, ["金额", "实付金额", "实际支付", "支付金额", "课程单价"]));
-    return {
-      ...row,
-      "日期": excelFirst(row, ["日期", "续课日期", "报名日期", "下单时间", "支付时间", "创建时间"]),
-      "城市": normalizeCity(excelFirst(row, ["城市", "分配城市", "区域"])),
-      "区域": normalizeDistrict(excelFirst(row, ["区域", "分配区域"])),
-      "教练": excelText(row["教练"]),
-      "门店名称": excelFirst(row, ["门店名称", "上课门店"]),
-      "课程名称": excelFirst(row, ["课程名称", "课程种类"]),
-      "续约数": refunded ? 0 : excelNum(row["续约数"], 1),
-      "金额": refunded ? 0 : paid,
-      "渠道": excelFirst(row, ["渠道", "来源"]),
-      "状态": status
-    };
-  });
-}
-
-function excelFirst(row, keys) {
-  for (const key of keys) {
-    if (excelText(row[key]) !== "") return row[key];
-  }
-  return "";
 }
 
 function jsonPayloadsToSheets(payloads) {
@@ -1597,18 +1452,7 @@ function normalizeCity(value) {
   const raw = Array.isArray(value) ? value.join("") : String(value || "");
   if (raw.includes("深圳")) return "深圳";
   if (raw.includes("广州")) return "广州";
-  const district = normalizeDistrict(raw);
-  const shenzhen = ["南山", "福田", "罗湖", "宝安", "龙岗", "龙华", "坪山", "光明", "盐田", "大鹏"];
-  const guangzhou = ["天河", "越秀", "海珠", "荔湾", "白云", "黄埔", "番禺", "增城", "南沙", "花都", "从化"];
-  if (shenzhen.some((item) => district.includes(item))) return "深圳";
-  if (guangzhou.some((item) => district.includes(item))) return "广州";
   return raw.replace(/市$/, "");
-}
-
-function normalizeDistrict(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  return raw.endsWith("区") ? raw : `${raw}区`;
 }
 
 function coachLevelLabel(value) {
@@ -1777,8 +1621,8 @@ function excelAutoOperatingModel(source) {
 }
 
 function excelAutoCity(city, period, periods, source, relations) {
-  const stores = uniqueRowsBy(source.stores.filter(row => excelFieldIncludes(row["城市"], city)), storeUniqueKey);
-  const coaches = uniqueRowsBy(source.coaches.filter(row => excelFieldIncludes(row["城市"], city)), coachUniqueKey);
+  const stores = source.stores.filter(row => excelFieldIncludes(row["城市"], city));
+  const coaches = source.coaches.filter(row => excelFieldIncludes(row["城市"], city));
   const trials = source.trials.filter(row => excelFieldIncludes(row["城市"], city));
   const renewals = source.renewals.filter(row => excelFieldIncludes(row["城市"], city));
   const scopedTrials = trials.filter(row => excelDateInPeriod(excelRowDate(row), period));
@@ -1789,10 +1633,10 @@ function excelAutoCity(city, period, periods, source, relations) {
   const monthRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.month));
   const weekRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.week));
   const yesterdayRenewals = renewals.filter(row => excelDateInPeriod(excelRowDate(row), periods.day));
-  const monthStores = stores.filter(row => excelDateInPeriod(excelStoreJoinedDate(row), periods.month));
-  const yesterdayStores = stores.filter(row => excelDateInPeriod(excelStoreJoinedDate(row), periods.day));
-  const monthCoaches = coaches.filter(row => excelDateInPeriod(excelCoachJoinedDate(row), periods.month));
-  const yesterdayCoaches = coaches.filter(row => excelDateInPeriod(excelCoachJoinedDate(row), periods.day));
+  const monthStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.month) || excelTruthy(row["新增类型"]));
+  const yesterdayStores = stores.filter(row => excelDateInPeriod(excelRowDate(row, "入驻日期"), periods.day) || excelTruthy(row["昨日新增"]));
+  const monthCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.month) || excelTruthy(row["新增类型"]));
+  const yesterdayCoaches = coaches.filter(row => excelDateInPeriod(excelRowDate(row, "入职日期"), periods.day) || excelTruthy(row["昨日新增"]));
   return {
     revenueWan: Math.round((excelSum(scopedTrials, "金额") + excelSum(scopedRenewals, "金额")) / 100) / 100,
     monthRevenueWan: Math.round((excelSum(monthTrials, "金额") + excelSum(monthRenewals, "金额")) / 100) / 100,
@@ -1870,8 +1714,8 @@ function excelAggregateDistricts(stores, coaches) {
     ...coaches.flatMap(row => excelSplit(row["区域"]))
   ].filter(Boolean))];
   return districts.map((district) => {
-	    const districtStores = uniqueRowsBy(stores.filter(row => excelFieldIncludes(row["区域"], district)), storeUniqueKey);
-	    const districtCoaches = uniqueRowsBy(coaches.filter(row => excelFieldIncludes(row["区域"], district)), coachUniqueKey);
+    const districtStores = stores.filter(row => excelFieldIncludes(row["区域"], district));
+    const districtCoaches = coaches.filter(row => excelFieldIncludes(row["区域"], district));
     return {
       name: district,
       coaches: districtCoaches.length,
@@ -1903,7 +1747,7 @@ function excelRows(matrix) {
 }
 
 function excelIsHeader(value) {
-  return ["period_type", "城市", "KR编号", "编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "教练ID", "门店ID", "负责人", "区域", "排序"].includes(excelText(value));
+  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "区域"].includes(excelText(value));
 }
 
 function excelText(value, fallback = "") {
@@ -1991,26 +1835,8 @@ function excelRowDate(row, key = "日期") {
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = excelText(value);
   if (!raw) return null;
-  if (/^\d{5}(?:\.\d+)?$/.test(raw)) return new Date(Math.round((Number(raw) - 25569) * 86400 * 1000));
   const date = parseBeijingDate(raw);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function excelStoreJoinedDate(row) {
-  return excelRowDateFromKeys(row, ["入驻日期", "入驻时间", "签约日期", "签约时间", "创建日期", "创建时间", "新增时间"]);
-}
-
-function excelCoachJoinedDate(row) {
-  return excelRowDateFromKeys(row, ["入职日期", "入职时间", "加入日期", "加入时间", "创建日期", "创建时间", "新增时间"]);
-}
-
-function excelRowDateFromKeys(row, keys) {
-  for (const key of keys) {
-    if (excelText(row[key]) === "") continue;
-    const date = excelRowDate(row, key);
-    if (date) return date;
-  }
-  return null;
 }
 
 function excelDateInPeriod(date, period) {
@@ -2055,25 +1881,7 @@ function excelPaidStore(row) {
 }
 
 function excelStoreItem(row) {
-  return { id: excelText(row["门店ID"]), district: excelText(row["区域"]), name: excelText(row["门店名称"]) };
-}
-
-function uniqueRowsBy(rows, keyFn) {
-  const seen = new Set();
-  return (rows || []).filter((row) => {
-    const key = String(keyFn(row) || "").trim();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function storeUniqueKey(row) {
-  return excelText(row["门店ID"]) || `${excelText(row["城市"])}|${excelText(row["门店名称"])}`;
-}
-
-function coachUniqueKey(row) {
-  return excelText(row["教练ID"]) || `${excelText(row["城市"])}|${excelText(row["教练"])}`;
+  return { district: excelText(row["区域"]), name: excelText(row["门店名称"]) };
 }
 
 function excelSameCoach(row, coachId, coachName) {
@@ -2225,7 +2033,7 @@ document.querySelector("#settingsButton").addEventListener("click", () => {
   els.endpointInput.value = localStorage.getItem("dingtalkEndpoint") || "";
   els.dialog.showModal();
 });
-document.querySelector("#syncButton").addEventListener("click", toggleRemoteSync);
+document.querySelector("#syncButton").addEventListener("click", () => loadRemoteData(true));
 document.querySelector("#refreshButton").addEventListener("click", () => loadRemoteData(true));
 document.querySelector("#saveEndpoint").addEventListener("click", () => {
   const value = els.endpointInput.value.trim();
@@ -2239,7 +2047,7 @@ document.querySelector("#saveEndpoint").addEventListener("click", () => {
 document.querySelector("#pngButton").addEventListener("click", exportPng);
 document.querySelector("#pdfButton").addEventListener("click", exportPdf);
 document.querySelector("#templateButton").addEventListener("click", () => {
-  downloadFile("./经营仓数据模板.xlsx", "经营仓数据模板.xlsx");
+  downloadFile("./小铁台球经营仓数据模板.xlsx", "小铁台球经营仓数据模板.xlsx");
 });
 document.querySelector("#uploadButton").addEventListener("click", uploadExcelData);
 document.querySelector("#jsonUploadButton").addEventListener("click", uploadJsonData);
