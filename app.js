@@ -295,7 +295,7 @@ function syncStatusText(meta = {}) {
   if (warningCount > 0) {
     const sheets = Array.from(new Set((meta.syncWarnings || []).map((item) => item.sheet).filter(Boolean))).slice(0, 4);
     const sheetText = sheets.length ? `：${sheets.join("、")}` : "";
-    return `钉钉同步：部分成功（${warningCount}个分段跳过${sheetText}）`;
+    return `钉钉同步：未完整同步（${warningCount}个问题${sheetText}）`;
   }
   return `钉钉同步：${meta.syncMode || "未同步"}`;
 }
@@ -865,17 +865,7 @@ async function loadRemoteData(manual = false) {
     localStorage.setItem(REMOTE_DATA_CACHE_KEY, JSON.stringify(cockpitData));
     render();
   } catch (error) {
-    const cached = readLastGoodRemoteData();
-    if (cached) {
-      cockpitData = cached;
-      cockpitData.meta = cockpitData.meta || {};
-      cockpitData.meta.syncMode = `远程同步失败，已使用上次成功数据：${shortError(error.message)}`;
-      cockpitData.meta.syncWarningCount = 0;
-      render();
-      if (manual) alert(`远程读取失败，已显示上次成功数据：${shortError(error.message, 500)}`);
-      return;
-    }
-    cockpitData.meta.syncMode = `同步失败：${shortError(error.message)}`;
+    cockpitData.meta.syncMode = `同步失败，数据未更新：${shortError(error.message)}`;
     cockpitData.meta.syncWarningCount = 0;
     render();
     if (manual) alert(`读取数据失败：${shortError(error.message, 500)}`);
@@ -1122,12 +1112,13 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
     };
   }
 
+  const companyTotalGoal = views.month?.mission?.goal || excelNum(meta.totalGoal, 0);
   return {
     meta: {
       company: excelText(meta.company, "小铁台球教培"),
       period: excelText(meta.period, currentMonthPeriodText()),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
-      totalGoal: excelNum(meta.totalGoal, 85),
+      totalGoal: companyTotalGoal,
       syncMode
     },
     views,

@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-04-city-sheet-date-auto-v5";
+const API_VERSION = "2026-08-04-complete-sync-v6";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -46,7 +46,9 @@ module.exports = async function handler(req, res) {
   }
 
   const startedAt = Date.now();
-  const deadline = startedAt + clampInt(process.env.DINGTALK_FUNCTION_BUDGET_MS, 3000, 26000, 7500);
+  const deadline = process.env.DINGTALK_ENFORCE_DEADLINE === "true" && process.env.DINGTALK_FUNCTION_BUDGET_MS
+    ? startedAt + clampInt(process.env.DINGTALK_FUNCTION_BUDGET_MS, 10000, 28000, 25000)
+    : null;
   try {
     const sheets = await fetchAllSheets(deadline);
     const data = transformWorkbook(sheets);
@@ -72,23 +74,14 @@ async function fetchAllSheets(deadline) {
   const token = await getDingTalkAccessToken(deadline);
   const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token, deadline);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
-  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 2, 4, 2);
+  const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 1, 2, 1);
   const warnings = [];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
-    if (!hasTime(deadline, 900)) {
-      warnings.push(syncWarning(name, "", "同步时间预算已到，跳过剩余Sheet，避免Vercel 504"));
-      return [name, []];
-    }
     const sheetId = resolveSheetId(name, mapping, liveKnown);
-    if (!sheetId) return [name, []];
-    try {
-      const result = await fetchSheetValues(sheetId, token, name, deadline);
-      if (result.warnings.length) warnings.push(...result.warnings);
-      return [name, result.values];
-    } catch (error) {
-      warnings.push(syncWarning(name, "", error.message));
-      return [name, []];
-    }
+    if (!sheetId) throw new Error(`缺少必需Sheet：${name}`);
+    const result = await fetchSheetValues(sheetId, token, name, deadline);
+    if (result.warnings.length) warnings.push(...result.warnings);
+    return [name, result.values];
   });
   const sheets = Object.fromEntries(entries);
   sheets.__syncWarnings = warnings;
@@ -225,14 +218,9 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range, deadlin
     };
   }
 
-  const warnings = [];
   const headerRange = `${parsed.startCol}${parsed.startRow}:${parsed.endCol}${parsed.startRow}`;
-  let header = [];
-  try {
-    header = await fetchSheetRange(sheetId, token, sheetName, headerRange, deadline);
-  } catch (error) {
-    warnings.push(syncWarning(sheetName, headerRange, error.message));
-  }
+  const warnings = [];
+  const header = await fetchSheetRange(sheetId, token, sheetName, headerRange, deadline);
 
   const chunkRows = clampInt(process.env.DINGTALK_CHUNK_ROWS, 200, 350, 260);
   const chunks = [];
@@ -242,19 +230,11 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range, deadlin
   }
 
   const matrices = [];
-  let consecutiveBlankChunks = 0;
   for (const chunkRange of chunks) {
-    if (!hasTime(deadline, 900)) {
-      warnings.push(syncWarning(sheetName, chunkRange, "同步时间预算已到，停止读取该Sheet剩余分段"));
-      break;
-    }
     const matrix = await fetchChunkWithSplit(sheetId, token, sheetName, chunkRange, warnings, deadline);
     if (isBlankMatrix(matrix)) {
-      consecutiveBlankChunks += 1;
-      if (consecutiveBlankChunks >= 1) break;
       continue;
     }
-    consecutiveBlankChunks = 0;
     if (matrix.length) matrices.push(matrix);
   }
 
@@ -272,17 +252,12 @@ async function fetchChunkWithSplit(sheetId, token, sheetName, range, warnings, d
     const parsed = parseA1Range(range);
     const minRows = clampInt(process.env.DINGTALK_MIN_CHUNK_ROWS, 20, 80, 40);
     if (!parsed || parsed.rowCount <= minRows || !isRetryableDingTalkError(error)) {
-      warnings.push(syncWarning(sheetName, range, error.message));
-      return [];
+      throw error;
     }
     const middle = parsed.startRow + Math.floor(parsed.rowCount / 2) - 1;
     const first = `${parsed.startCol}${parsed.startRow}:${parsed.endCol}${middle}`;
     const second = `${parsed.startCol}${middle + 1}:${parsed.endCol}${parsed.endRow}`;
     const firstRows = await fetchChunkWithSplit(sheetId, token, sheetName, first, warnings, deadline);
-    if (!hasTime(deadline, 900)) {
-      warnings.push(syncWarning(sheetName, second, "同步时间预算已到，停止读取拆分后的剩余分段"));
-      return firstRows;
-    }
     const secondRows = await fetchChunkWithSplit(sheetId, token, sheetName, second, warnings, deadline);
     return [...firstRows, ...secondRows];
   }
@@ -311,7 +286,7 @@ async function fetchSheetRange(sheetId, token, sheetName, rangeText, deadline) {
 }
 
 async function requestJsonWithRetry(url, options, label) {
-  const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 2, 2);
+  const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 5, 4);
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (options?.deadline) ensureTime(options.deadline, label);
@@ -347,9 +322,9 @@ function ensureTime(deadline, label) {
 }
 
 function requestTimeoutMs(deadline) {
-  const configured = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 800, 2500, 1800);
+  const configured = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 12000, 8000);
   if (!deadline) return configured;
-  const remaining = Math.max(500, deadline - Date.now() - 500);
+  const remaining = Math.max(1000, deadline - Date.now() - 800);
   return Math.min(configured, remaining);
 }
 
@@ -576,13 +551,15 @@ function transformWorkbook(sheets) {
     };
   }
 
+  const companyTotalGoal = views.month?.mission?.goal || num(meta.totalGoal, 0);
+
   return {
     meta: {
       company: text(meta.company, "小铁台球教培"),
       period: text(meta.period, ""),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }),
-      totalGoal: num(meta.totalGoal, 85),
-      syncMode: (sheets.__syncWarnings || []).length ? "钉钉实时数据（部分Sheet跳过）" : "钉钉实时数据",
+      totalGoal: companyTotalGoal,
+      syncMode: "钉钉完整实时数据",
       syncWarnings: sheets.__syncWarnings || [],
       syncWarningCount: (sheets.__syncWarnings || []).length,
       apiVersion: sheets.__syncInfo?.apiVersion || API_VERSION
