@@ -318,12 +318,26 @@ button {
 .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: inherit; background: var(--bar-color, var(--blue)); width: calc(var(--value) * 1%); }
 
-.city-card { min-height: 820px; padding: 16px; }
+.city-card { min-height: 300px; padding: 16px; }
 .city-card h2 { margin: 0 0 18px; font-size: 25px; color: var(--city-color); }
 .performance-strip {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
+}
+.monthly-only-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+}
+.monthly-only-strip .metric {
+  min-height: 92px;
+}
+.hidden-detail {
+  display: none;
+}
+.empty-note {
+  color: var(--muted);
+  margin: 20px 0 0;
 }
 .city-map-head {
   display: flex;

@@ -2,36 +2,22 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-04-complete-sync-v6";
+const API_VERSION = "2026-08-04-four-sheet-monthly-v7";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
-  "基础配置",
-  "双城经营",
-  "公司KR",
-  "六部门OKR",
-  "六项目OKR",
-  "门店明细",
-  "教练档案",
-  "教练门店关系",
-  "体验课流水",
-  "正课流水",
-  "转化漏斗",
-  "经营重点"
+  "首页配置",
+  "经营数据表",
+  "运营中心OKR",
+  "项目进度"
 ];
-const DETAIL_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "正课流水"];
-const SHEET_COLUMN_LIMITS = {
-  "门店明细": "M",
-  "教练档案": "K",
-  "教练门店关系": "H",
-  "体验课流水": "Q",
-  "正课流水": "Q"
-};
+const DETAIL_SHEETS = [];
+const SHEET_COLUMN_LIMITS = {};
 const SHEET_ALIASES = {
-  "正课流水": ["续课流水", "正课订单", "正课数据", "续课数据"],
-  "六项目OKR": ["项目进度", "六项目", "项目OKR"],
-  "六部门OKR": ["总部运营中心OKR", "部门OKR", "六部门"],
-  "经营重点": ["运营提醒", "经营提醒", "风险预警"]
+  "首页配置": ["基础配置", "首页文字", "品牌配置"],
+  "经营数据表": ["双城经营", "城市经营", "经营数据"],
+  "运营中心OKR": ["总部运营中心OKR", "六部门OKR", "部门OKR", "公司KR"],
+  "项目进度": ["六项目OKR", "六项目", "项目OKR"]
 };
 const MONEY_KEYS = ["金额", "实付金额", "支付金额", "订单金额", "营收", "收入", "体验课金额", "正课金额"];
 const TRIAL_COUNT_KEYS = ["下单数", "体验课数", "体验课下单数", "订单数"];
@@ -484,52 +470,17 @@ function extractMatrix(payload) {
 }
 
 function transformWorkbook(sheets) {
-  const metaRows = rowsFromMatrix(sheets["基础配置"]);
-  const cityRows = rowsFromMatrix(sheets["双城经营"]);
-  const krRows = rowsFromMatrix(sheets["公司KR"]);
-  const departmentRows = rowsFromMatrix(sheets["六部门OKR"]);
-  const projectRows = rowsFromMatrix(sheets["六项目OKR"]);
-  const personRows = rowsFromMatrix(sheets["个人OKR"]);
-  const coachRows = rowsFromMatrix(sheets["教练经营"]);
-  const districtRows = rowsFromMatrix(sheets["城区分布"]);
-  const funnelRows = rowsFromMatrix(sheets["转化漏斗"]);
-  const storeRows = rowsFromMatrix(sheets["门店明细"]);
-  const coachProfileRows = rowsFromMatrix(sheets["教练档案"]);
-  const relationRows = rowsFromMatrix(sheets["教练门店关系"]);
-  const trialRows = rowsFromMatrix(sheets["体验课流水"]);
-  const renewalRows = rowsFromMatrix(sheets["正课流水"] || sheets["续课流水"]);
-  const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
-  const autoModel = buildAutoOperatingModel({
-    meta,
-    stores: storeRows,
-    coaches: coachProfileRows,
-    relations: relationRows,
-    trials: trialRows,
-    renewals: renewalRows
-  });
+  const metaRows = rowsFromMatrix(sheets["首页配置"]);
+  const cityRows = rowsFromMatrix(sheets["经营数据表"]);
+  const okrRows = rowsFromMatrix(sheets["运营中心OKR"]);
+  const projectRows = rowsFromMatrix(sheets["项目进度"]);
+  const meta = Object.fromEntries(metaRows.map((r) => [text(r.key || r["配置项"]), text(r.value || r["内容"])]));
   const views = {};
+  const monthlyRows = cityRows.filter((r) => !text(r.period_type) || text(r.period_type, "month") === "month");
 
   for (const view of ["month", "week", "day"]) {
-    const scopedCityRows = cityRows.filter((r) => r.period_type === view);
-    const rowsForView = scopedCityRows.length ? scopedCityRows : fallbackCityRows(view, autoModel[view]);
-    const cities = rowsForView
-      .filter((r) => r.period_type === view)
-      .map((r) => buildCityViewRow(r, view, autoModel[view]?.[text(r["城市"])], coachRows, districtRows));
-
-    const companyKr = krRows
-      .filter((r) => r.period_type === view)
-      .map((r) => ({
-        code: text(r["KR编号"]),
-        title: text(r["KR名称"]),
-        target: text(r["目标"]),
-        done: text(r["完成"]),
-        rate: num(r["完成率_%"]),
-        owner: text(r["负责人"]),
-        support: text(r["支持部门"]),
-        risk: text(r["风险"]),
-        action: text(r["关键行动"]),
-        color: text(r["颜色"], colorByRate(num(r["完成率_%"])))
-      }));
+    const cities = monthlyRows.map((r) => buildMonthlyCityRow(r));
+    const companyKr = okrRows.map(okrFromRow);
 
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
     const completed = cities.reduce((sum, city) => sum + city.completed, 0);
@@ -556,7 +507,10 @@ function transformWorkbook(sheets) {
   return {
     meta: {
       company: text(meta.company, "小铁台球教培"),
-      period: text(meta.period, ""),
+      period: text(meta.period, currentMonthPeriodText()),
+      vision: text(meta.vision, "打造最靠谱的智能台球教育平台"),
+      missionText: text(meta.missionText || meta.mission, "科技赋能、学员得技、教练得益、球房得利"),
+      values: text(meta.values, "践行、精进、共赢、致远"),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }),
       totalGoal: companyTotalGoal,
       syncMode: "钉钉完整实时数据",
@@ -565,50 +519,84 @@ function transformWorkbook(sheets) {
       apiVersion: sheets.__syncInfo?.apiVersion || API_VERSION
     },
     views,
-    departments: departmentRows.map((r) => ({
-      name: text(r["部门"]),
-      objective: text(r["Objective"]),
-      owner: text(r["负责人"]),
-      target: text(r["目标值"]),
-      done: text(r["实际完成"]),
-      unit: text(r["单位"]),
-      rate: num(r["完成率_%"]),
-      risk: text(r["风险/卡点"]),
-      action: text(r["下一步具体动作"]),
-      dueDate: text(r["截止日期"]),
-      krs: splitKrs(r["关键KR"])
-    })),
-    projects: projectRows.map((r) => ({
-      name: text(r["项目"]),
-      objective: text(r["Objective"]),
-      owner: text(r["负责人"]),
-      target: text(r["目标值"]),
-      done: text(r["实际完成"]),
-      unit: text(r["单位"]),
-      rate: num(r["完成率_%"]),
-      status: text(r["状态"], statusByRate(num(r["完成率_%"]), 100)),
-      risk: text(r["风险/卡点"]),
-      action: text(r["下一步具体动作"]),
-      krs: splitKrs(r["关键KR"])
-    })),
-    people: summarizePeople(personRows),
-    peopleDetails: personRows.map((r) => ({
-      department: text(r["部门"]),
-      name: text(r["姓名"]),
-      role: text(r["岗位"]),
-      objective: text(r["个人Objective"]),
-      krCode: text(r["KR编号"]),
-      keyResult: text(r["关键KR"]),
-      metric: text(r["衡量指标"]),
-      target: num(r["目标值"]),
-      actual: num(r["实际完成"]),
-      rate: num(r["完成率_%"]),
-      status: text(r["状态"], statusByRate(num(r["完成率_%"]), 100)),
-      risk: text(r["风险/卡点"]),
-      action: text(r["下一步具体动作"]),
-      dueDate: text(r["截止日期"])
-    })),
-    conversionFunnel: buildConversionFunnel(funnelRows)
+    departments: okrRows.map(okrFromRow),
+    projects: projectRows.map(projectFromRow),
+    people: [],
+    peopleDetails: [],
+    conversionFunnel: []
+  };
+}
+
+function currentMonthPeriodText() {
+  const now = shanghaiDateParts();
+  return `${now.year}年${now.month}月`;
+}
+
+function okrFromRow(r) {
+  const rate = num(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  return {
+    code: text(firstValue(r, ["KR编号", "编号", "序号"])),
+    title: text(firstValue(r, ["KR名称", "关键结果", "标题", "名称"])),
+    name: text(firstValue(r, ["部门", "模块", "名称", "负责人"]), "运营中心"),
+    objective: text(firstValue(r, ["Objective", "O", "目标", "运营目标"])),
+    owner: text(firstValue(r, ["负责人", "owner"])),
+    target: text(firstValue(r, ["目标值", "目标"])),
+    done: text(firstValue(r, ["实际完成", "完成值", "完成"])),
+    unit: text(firstValue(r, ["单位"])),
+    rate,
+    status: text(firstValue(r, ["状态"]), statusByRate(rate, 100)),
+    risk: text(firstValue(r, ["风险/卡点", "风险", "卡点"])),
+    action: text(firstValue(r, ["下一步具体动作", "关键行动", "动作"])),
+    dueDate: text(firstValue(r, ["截止日期", "日期"])),
+    support: text(firstValue(r, ["支持部门", "协同部门"])),
+    color: text(firstValue(r, ["颜色"]), colorByRate(rate)),
+    krs: splitKrs(firstValue(r, ["关键KR", "KR项", "关键结果"]))
+  };
+}
+
+function projectFromRow(r) {
+  const rate = num(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  return {
+    name: text(firstValue(r, ["项目", "项目名称", "名称"])),
+    objective: text(firstValue(r, ["Objective", "O", "目标", "项目目标"])),
+    owner: text(firstValue(r, ["负责人", "owner"])),
+    target: text(firstValue(r, ["目标值", "目标"])),
+    done: text(firstValue(r, ["实际完成", "完成值", "完成"])),
+    unit: text(firstValue(r, ["单位"])),
+    rate,
+    status: text(firstValue(r, ["状态"]), statusByRate(rate, 100)),
+    risk: text(firstValue(r, ["风险/卡点", "风险", "卡点"])),
+    action: text(firstValue(r, ["下一步具体动作", "关键行动", "动作"])),
+    krs: splitKrs(firstValue(r, ["关键KR", "KR项", "关键结果"]))
+  };
+}
+
+function buildMonthlyCityRow(r) {
+  const cityName = text(r["城市"]);
+  const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
+  const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
+  const rate = num(firstValue(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
+  const weekGoal = num(firstValue(r, ["周目标_万元", "周目标 万元", "周目标"]));
+  const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekRate = num(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
+  const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
+  return {
+    key: cityName === "深圳" ? "shenzhen" : "guangzhou",
+    name: cityName,
+    color: CITY_COLORS[cityName] || "#1aa7ff",
+    goal: monthlyGoal,
+    completed: monthlyCompleted,
+    rate,
+    time: monthProgressPercent(),
+    status: text(r["状态"], statusByRate(rate, monthProgressPercent())),
+    monthlyGoal,
+    monthlyCompleted,
+    weekGoal,
+    weekCompleted,
+    weekRate,
+    yesterdayCompleted,
+    gap: round(monthlyCompleted - monthlyGoal, 2),
+    needed: Math.max(round(monthlyGoal - monthlyCompleted, 2), 0)
   };
 }
 
@@ -1065,7 +1053,7 @@ function rowsFromMatrix(matrix) {
 }
 
 function isHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "教练ID", "门店ID", "负责人", "区域", "日期", "类型", "排序"].includes(text(value).trim());
+  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "日期", "类型", "排序"].includes(text(value).trim());
 }
 
 function summarizePeople(rows) {

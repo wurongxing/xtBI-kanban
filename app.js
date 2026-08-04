@@ -270,6 +270,11 @@ function statusClass(status) {
 
 function render() {
   const view = cockpitData.views[activeView];
+  const slogan = document.querySelector(".brand-slogan");
+  const brandLines = document.querySelectorAll(".brand-line");
+  if (slogan) slogan.textContent = `愿景：${cockpitData.meta.vision || "打造最靠谱的智能台球教育平台"}`;
+  if (brandLines[0]) brandLines[0].textContent = `使命：${cockpitData.meta.missionText || "科技赋能、学员得技、教练得益、球房得利"}`;
+  if (brandLines[1]) brandLines[1].textContent = `价值观：${cockpitData.meta.values || "践行、精进、共赢、致远"}`;
   els.period.textContent = `数据周期：${cockpitData.meta.period}`;
   els.updated.textContent = `更新于：${cockpitData.meta.updatedAt}`;
   els.sync.textContent = syncStatusText(cockpitData.meta);
@@ -306,38 +311,11 @@ function renderCityCenter(view) {
     <article class="panel city-card" id="shenzhenCard"></article>
     <article class="panel city-card" id="guangzhouCard"></article>
   `;
-  els.detailGrid.className = "detail-grid city-insights-only";
-  els.detailGrid.innerHTML = `
-    <article class="panel ai-panel city-insights-panel">
-      <div class="panel-head">
-        <h2>经营重点提醒</h2>
-        <span>城市负责人每日看</span>
-      </div>
-      <div class="city-insights" id="aiInsights"></div>
-    </article>
-  `;
-  const centers = view.cities.map(enrichCityCenter);
-  renderCity(centers[0], "#shenzhenCard");
-  renderCity(centers[1], "#guangzhouCard");
-
-  document.querySelector("#aiInsights").innerHTML = `
-    <section class="insight-group">
-      <h3 class="bad">风险预警</h3>
-      <ul><li>广州体验课成交率低于深圳，需按教练拆成交漏斗。</li><li>本月到期用户要单独盯续客动作，避免集中流失。</li></ul>
-    </section>
-    <section class="insight-group">
-      <h3 class="good">亮点分析</h3>
-      <ul><li>深圳门店和教练密度更高，可作为广州城区扩张样板。</li><li>新增门店数能直接牵引体验课供给，需要和教练新增配平。</li></ul>
-    </section>
-    <section class="insight-group">
-      <h3 class="blue">经营建议</h3>
-      <ul><li>城市负责人每日看用户数、体验课成交率、教练成交率、续客率四张表。</li><li>城区图按门店/教练密度找空白区，新增门店优先补高需求低覆盖区域。</li></ul>
-    </section>
-    <section class="insight-group">
-      <h3 class="blue">公式口径</h3>
-      <ul>${formulaLogicItems(centers).map(item => `<li>${item}</li>`).join("")}</ul>
-    </section>
-  `;
+  els.detailGrid.className = "detail-grid hidden-detail";
+  els.detailGrid.innerHTML = "";
+  const centers = view.cities;
+  renderCity(centers.find(city => city.name === "深圳") || centers[0], "#shenzhenCard");
+  renderCity(centers.find(city => city.name === "广州") || centers[1], "#guangzhouCard");
 }
 
 function formulaLogicItems(cities) {
@@ -455,6 +433,7 @@ function weeklyGoalFromMonth(value) {
 }
 
 function weeklyRate(city) {
+  if (Number.isFinite(Number(city.weekRate))) return Number(city.weekRate);
   const goal = Number(city.weekGoal || weeklyGoalFromMonth(city.monthlyGoal || city.goal));
   const done = Number(city.weekCompleted || 0);
   return goal ? Math.round((done / goal) * 1000) / 10 : 0;
@@ -465,29 +444,26 @@ function metricRing(label, value, color) {
 }
 
 function renderCity(city, selector) {
+  if (!city) {
+    document.querySelector(selector).innerHTML = `<h2>经营中心</h2><p class="empty-note">等待经营数据表同步</p>`;
+    return;
+  }
+  const monthlyGoal = city.monthlyGoal ?? city.goal;
+  const monthlyCompleted = city.monthlyCompleted ?? city.completed;
+  const weekGoal = city.weekGoal ?? weeklyGoalFromMonth(monthlyGoal);
+  const weekCompleted = city.weekCompleted ?? 0;
+  const yesterdayCompleted = city.yesterdayCompleted ?? 0;
   document.querySelector(selector).style.setProperty("--city-color", city.color);
   document.querySelector(selector).innerHTML = `
     <h2>${city.name}经营中心</h2>
-    <div class="performance-strip">
-      ${metric("月度目标", money(city.monthlyGoal || city.goal))}
-      ${metric("月度完成", money(city.monthlyCompleted || city.completed))}
+    <div class="performance-strip monthly-only-strip">
+      ${metric("月度目标", money(monthlyGoal))}
+      ${metric("月度完成", money(monthlyCompleted))}
       ${metric("完成率", `${city.rate}%`, city.rate < 30 ? "warn" : "good")}
-      ${metric("周目标", money(city.weekGoal || weeklyGoalFromMonth(city.monthlyGoal || city.goal)))}
-      ${metric("周完成", money(city.weekCompleted || city.completed))}
+      ${metric("周目标", money(weekGoal))}
+      ${metric("周完成", money(weekCompleted))}
       ${metric("周完成率", `${weeklyRate(city)}%`, weeklyRate(city) < 35 ? "warn" : "good")}
-      ${metric("昨日完成", money(city.yesterdayCompleted || city.completed))}
-    </div>
-    <div class="channel-board">
-      ${channelCard("用户端", city.channels.user)}
-      ${newCoachCard(city)}
-      ${newStoreCard(city)}
-    </div>
-    <div class="city-map-head">
-      <strong>城市地图</strong>
-      <span>${count(city.coachesTotal)}名教练 / ${count(city.storesTotal)}家门店 / 本月新签${count(city.newSignedStores)}家</span>
-    </div>
-    <div class="city-district-map">
-      ${city.districts.map(districtTile).join("")}
+      ${metric("昨日完成", money(yesterdayCompleted))}
     </div>
   `;
 }
@@ -1050,49 +1026,17 @@ async function uploadJsonData() {
 }
 
 function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
-  const metaRows = excelRows(sheets["基础配置"]);
-  const cityRows = excelRows(sheets["双城经营"]);
-  const krRows = excelRows(sheets["公司KR"]);
-  const departmentRows = excelRows(sheets["六部门OKR"]);
-  const projectRows = excelRows(sheets["六项目OKR"]);
-  const personRows = excelRows(sheets["个人OKR"]);
-  const coachRows = excelRows(sheets["教练经营"]);
-  const districtRows = excelRows(sheets["城区分布"]);
-  const funnelRows = excelRows(sheets["转化漏斗"]);
-  const storeRows = excelRows(sheets["门店明细"]);
-  const coachProfileRows = excelRows(sheets["教练档案"]);
-  const relationRows = excelRows(sheets["教练门店关系"]);
-  const trialRows = excelRows(sheets["体验课流水"]);
-  const renewalRows = excelRows(sheets["正课流水"] || sheets["续课流水"]);
-  const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
-  const autoModel = excelAutoOperatingModel({
-    meta,
-    stores: storeRows,
-    coaches: coachProfileRows,
-    relations: relationRows,
-    trials: trialRows,
-    renewals: renewalRows
-  });
+  const metaRows = excelRows(sheets["首页配置"] || sheets["基础配置"]);
+  const cityRows = excelRows(sheets["经营数据表"] || sheets["双城经营"]);
+  const okrRows = excelRows(sheets["运营中心OKR"] || sheets["总部运营中心OKR"] || sheets["六部门OKR"]);
+  const projectRows = excelRows(sheets["项目进度"] || sheets["六项目OKR"]);
+  const meta = Object.fromEntries(metaRows.map((r) => [excelText(r.key || r["配置项"]), excelText(r.value || r["内容"])]));
   const views = {};
+  const monthlyRows = cityRows.filter((r) => !excelText(r.period_type) || excelText(r.period_type, "month") === "month");
 
   for (const view of ["month", "week", "day"]) {
-    const cities = cityRows
-      .filter((r) => excelText(r.period_type) === view)
-      .map((r) => excelCityViewRow(r, view, autoModel[view]?.[excelText(r["城市"])], coachRows, districtRows));
-    const companyKr = krRows
-      .filter((r) => excelText(r.period_type) === view)
-      .map((r) => ({
-        code: excelText(r["KR编号"]),
-        title: excelText(r["KR名称"]),
-        target: excelText(r["目标"]),
-        done: excelText(r["完成"]),
-        rate: excelNum(r["完成率_%"]),
-        owner: excelText(r["负责人"]),
-        support: excelText(r["支持部门"]),
-        risk: excelText(r["风险"]),
-        action: excelText(r["关键行动"]),
-        color: excelText(r["颜色"], excelColorByRate(excelNum(r["完成率_%"])))
-      }));
+    const cities = monthlyRows.map(excelMonthlyCityRow);
+    const companyKr = okrRows.map(excelSimpleOkrRow);
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
     const completed = cities.reduce((sum, city) => sum + city.completed, 0);
     const time = cities.length ? average(cities.map((city) => city.time)) : 0;
@@ -1117,16 +1061,76 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
     meta: {
       company: excelText(meta.company, "小铁台球教培"),
       period: excelText(meta.period, currentMonthPeriodText()),
+      vision: excelText(meta.vision, "打造最靠谱的智能台球教育平台"),
+      missionText: excelText(meta.missionText || meta.mission, "科技赋能、学员得技、教练得益、球房得利"),
+      values: excelText(meta.values, "践行、精进、共赢、致远"),
       updatedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
       totalGoal: companyTotalGoal,
       syncMode
     },
     views,
-    departments: departmentRows.map(excelOkrRow("部门")),
-    projects: projectRows.map(excelOkrRow("项目")),
+    departments: okrRows.map(excelSimpleOkrRow),
+    projects: projectRows.map(excelProjectRow),
     people: [],
-    peopleDetails: personRows,
-    conversionFunnel: excelFunnel(funnelRows)
+    peopleDetails: [],
+    conversionFunnel: []
+  };
+}
+
+function excelSimpleOkrRow(r) {
+  const rate = excelNum(excelFirst(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  return {
+    code: excelText(excelFirst(r, ["KR编号", "编号", "序号"])),
+    title: excelText(excelFirst(r, ["KR名称", "关键结果", "标题", "名称"])),
+    name: excelText(excelFirst(r, ["部门", "模块", "名称", "负责人"]), "运营中心"),
+    objective: excelText(excelFirst(r, ["Objective", "O", "目标", "运营目标"])),
+    owner: excelText(excelFirst(r, ["负责人", "owner"])),
+    target: excelText(excelFirst(r, ["目标值", "目标"])),
+    done: excelText(excelFirst(r, ["实际完成", "完成值", "完成"])),
+    unit: excelText(excelFirst(r, ["单位"])),
+    rate,
+    status: excelText(excelFirst(r, ["状态"]), rate >= 60 ? "良好" : rate >= 35 ? "预警" : "滞后"),
+    risk: excelText(excelFirst(r, ["风险/卡点", "风险", "卡点"])),
+    action: excelText(excelFirst(r, ["下一步具体动作", "关键行动", "动作"])),
+    dueDate: excelText(excelFirst(r, ["截止日期", "日期"])),
+    support: excelText(excelFirst(r, ["支持部门", "协同部门"])),
+    color: excelText(excelFirst(r, ["颜色"]), excelColorByRate(rate)),
+    krs: excelText(excelFirst(r, ["关键KR", "KR项", "关键结果"])).split(/[；;|\n]+/).map((item) => item.trim()).filter(Boolean)
+  };
+}
+
+function excelProjectRow(r) {
+  return {
+    ...excelSimpleOkrRow(r),
+    name: excelText(excelFirst(r, ["项目", "项目名称", "名称"]))
+  };
+}
+
+function excelMonthlyCityRow(r) {
+  const cityName = excelText(r["城市"]);
+  const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
+  const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
+  const rate = excelNum(excelFirst(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
+  const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]));
+  const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
+  return {
+    key: cityName === "深圳" ? "shenzhen" : "guangzhou",
+    name: cityName,
+    color: cityName === "深圳" ? "#0066ff" : "#1aa7ff",
+    goal: monthlyGoal,
+    completed: monthlyCompleted,
+    rate,
+    time: monthProgress(),
+    status: rate >= monthProgress() ? "良好" : rate >= monthProgress() - 10 ? "预警" : "滞后",
+    monthlyGoal,
+    monthlyCompleted,
+    weekGoal,
+    weekCompleted,
+    weekRate,
+    yesterdayCompleted: excelNum(excelFirst(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"])),
+    gap: Math.round((monthlyCompleted - monthlyGoal) * 100) / 100,
+    needed: Math.max(Math.round((monthlyGoal - monthlyCompleted) * 100) / 100, 0)
   };
 }
 
@@ -1771,7 +1775,7 @@ function excelRows(matrix) {
 }
 
 function excelIsHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "姓名", "部门", "key", "动作ID", "教练", "区域"].includes(excelText(value));
+  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "区域"].includes(excelText(value));
 }
 
 function excelText(value, fallback = "") {
