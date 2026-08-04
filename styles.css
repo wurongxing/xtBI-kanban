@@ -103,7 +103,7 @@ body::before {
   justify-self: end;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 12px;
   border-radius: 10px;
@@ -170,7 +170,7 @@ button {
   gap: 16px;
   margin-bottom: 16px;
 }
-.hq-grid { grid-template-columns: minmax(0, 1.36fr) minmax(360px, 0.64fr); align-items: start; }
+.hq-grid { grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr); align-items: stretch; }
 .project-grid { grid-template-columns: 1fr; }
 .hq-main, .project-main { min-height: 360px; }
 .hq-kr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -182,8 +182,103 @@ button {
   min-height: 100%;
 }
 .hq-funnel-panel .funnel-title { display: none; }
-.hq-alert-grid {
+.hq-alert-grid, .hq-okr-detail-grid {
   grid-template-columns: 1fr;
+}
+.hq-kr-overview,
+.hq-people-okr {
+  grid-column: 1 / -1;
+}
+.people-okr-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.china-map-panel {
+  min-height: 100%;
+}
+.china-map {
+  padding: 0 16px 16px;
+}
+.china-map-canvas {
+  position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 72% 77%, rgba(255, 225, 0, 0.16), transparent 20%),
+    radial-gradient(circle at 50% 48%, rgba(0, 71, 255, 0.26), transparent 55%),
+    rgba(1, 10, 28, 0.72);
+  border: 1px solid rgba(30, 115, 255, 0.32);
+}
+.china-map-canvas svg {
+  position: absolute;
+  inset: 22px 18px 18px;
+  width: calc(100% - 36px);
+  height: calc(100% - 40px);
+}
+.china-map-canvas path {
+  fill: rgba(0, 71, 255, 0.16);
+  stroke: rgba(52, 231, 228, 0.48);
+  stroke-width: 3;
+}
+.city-pin {
+  position: absolute;
+  left: calc(var(--x) * 1%);
+  top: calc(var(--y) * 1%);
+  transform: translate(-50%, -100%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+.city-pin i {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--yellow);
+  box-shadow: 0 0 0 6px rgba(255, 225, 0, 0.16), 0 0 22px rgba(255, 225, 0, 0.75);
+}
+.city-pin section {
+  min-width: 128px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(4, 20, 39, 0.92);
+  border: 1px solid rgba(255, 225, 0, 0.28);
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.24);
+}
+.city-pin strong {
+  display: block;
+  color: var(--yellow);
+  font-size: 15px;
+}
+.city-pin span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.city-pin b {
+  display: block;
+  color: #fff;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.city-expansion-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.city-expansion-list span {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: rgba(7, 43, 78, 0.62);
+  color: var(--muted);
+  font-size: 12px;
+}
+.city-expansion-list b {
+  margin-right: 8px;
+  color: var(--cyan);
 }
 .project-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .project-progress-card { min-height: 275px; }
@@ -1281,6 +1376,7 @@ dialog::backdrop { background: rgba(0,0,0,0.62); }
   .cockpit { width: calc(100vw - 18px); padding-top: 10px; }
   .filters { width: 100%; overflow-x: auto; }
   .title-block h1 { font-size: 28px; }
+  .company-summary { grid-template-columns: 1fr 1fr; }
   .mission-metrics, .city-stats, .city-bottom, .kr-detail-grid { grid-template-columns: 1fr 1fr; }
   .hq-kr-grid, .project-cards { grid-template-columns: 1fr; }
   .project-rank-row { grid-template-columns: 30px 1fr 58px; }
@@ -1290,6 +1386,7 @@ dialog::backdrop { background: rgba(0,0,0,0.62); }
   .coach-table { min-width: 1380px; }
   .okr-cards { grid-template-columns: 1fr; }
   .people-list { grid-template-columns: 1fr; }
+  .city-expansion-list { grid-template-columns: 1fr; }
   .city-main, .pk-body { grid-template-columns: 1fr; }
   .versus { font-size: 24px; }
   .person-row { grid-template-columns: 48px 1fr 58px 58px 48px; font-size: 12px; }

@@ -100,6 +100,10 @@ const fallbackData = {
     { name: "已消课数", value: "386", note: "有效下单消课率 77.5%" },
     { name: "转化数", value: "118", note: "转化率 30.6%" },
     { name: "续约数", value: "46", note: "续约率 39.0%" }
+  ],
+  cityExpansion: [
+    { name: "深圳", province: "广东", coaches: 102, stores: 462, x: 73, y: 78, status: "已开拓" },
+    { name: "广州", province: "广东", coaches: 47, stores: 212, x: 68, y: 75, status: "已开拓" }
   ]
 };
 
@@ -138,6 +142,7 @@ const els = {
   sync: document.querySelector("#syncText"),
   totalGoal: document.querySelector("#totalGoal"),
   totalCompleted: document.querySelector("#totalCompleted"),
+  totalRate: document.querySelector("#totalRate"),
   timeProgress: document.querySelector("#timeProgress"),
   cityGrid: document.querySelector(".city-grid"),
   detailGrid: document.querySelector(".detail-grid"),
@@ -280,6 +285,7 @@ function render() {
   els.sync.textContent = syncStatusText(cockpitData.meta);
   els.totalGoal.textContent = `${cockpitData.meta.totalGoal}万`;
   els.totalCompleted.textContent = money(view.mission.completed);
+  if (els.totalRate) els.totalRate.textContent = `${view.mission.rate}%`;
   els.timeProgress.textContent = `${view.mission.time}%`;
 
   if (activeView === "week") {
@@ -326,58 +332,37 @@ function formulaLogicItems(cities) {
 function renderHeadquartersOkr(view) {
   els.cityGrid.className = "city-grid hq-grid";
   els.cityGrid.innerHTML = `
-    <article class="panel hq-main">
-      <div class="panel-head">
-        <h2>总部运营中心OKR</h2>
-        <span>公司级KR</span>
-      </div>
-      <div class="mission-metrics hq-metrics">
-        ${metric("经营目标", money(view.mission.goal))}
-        ${metric("当前完成", money(view.mission.completed))}
-        ${metric("完成率", `${view.mission.rate}%`, statusClass(view.mission.status))}
-        ${metric("时间进度", `${view.mission.time}%`, "blue")}
-      </div>
-      <div class="kr-detail-grid hq-kr-grid">
-        ${view.companyKr.map(kr => `
-          <section class="kr-card">
-            <h3>${kr.code} ${kr.title}</h3>
-            <div class="kr-pair"><span>目标</span><strong>${kr.target}</strong></div>
-            <div class="kr-pair"><span>完成</span><strong>${kr.done}</strong></div>
-            <div class="kr-pair"><span>完成率</span><strong style="color:${kr.color}">${kr.rate}%</strong></div>
-            <div class="okr-progress" style="--value:${kr.rate}"><i></i></div>
-            <p>负责人：${kr.owner}</p>
-            <p>动作：${kr.action}</p>
-          </section>
-        `).join("")}
-      </div>
-    </article>
     <article class="panel hq-funnel-panel">
       <div class="panel-head">
         <h2>流量到转化漏斗</h2>
-        <span>小程序到续约</span>
+        <span>第5张表</span>
       </div>
       ${conversionFunnel()}
     </article>
+    <article class="panel china-map-panel">
+      <div class="panel-head">
+        <h2>中国城市开拓图</h2>
+        <span>第6张表</span>
+      </div>
+      ${chinaExpansionMap()}
+    </article>
   `;
 
-  els.detailGrid.className = "detail-grid hq-alert-grid";
+  els.detailGrid.className = "detail-grid hq-okr-detail-grid";
   els.detailGrid.innerHTML = `
-    <article class="panel">
+    <article class="panel hq-kr-overview">
       <div class="panel-head">
-        <h2>运营部门OKR</h2>
-        <span>总部协同</span>
+        <h2>运营中心KR项</h2>
+        <span>模块目标</span>
       </div>
       <div class="okr-cards">${cockpitData.departments.map(okrCard).join("")}</div>
     </article>
-    <article class="panel ai-panel hq-alert-panel">
+    <article class="panel hq-people-okr">
       <div class="panel-head">
-        <h2>总部运营提醒</h2>
-        <span>OKR复盘</span>
+        <h2>角色个人OKR</h2>
+        <span>一人一个O，多KR周动作</span>
       </div>
-      <div>
-        <section class="insight-group"><h3 class="bad">卡点</h3><ul><li>低于时间进度的KR要拆到城市和负责人日动作。</li><li>总部要重点盯用户、教练、门店三端数据口径统一。</li></ul></section>
-        <section class="insight-group"><h3 class="blue">建议</h3><ul><li>每周固定复盘公司KR、城市经营和项目进度三张表。</li></ul></section>
-      </div>
+      <div class="okr-cards people-okr-cards">${(cockpitData.people || []).map(okrCard).join("")}</div>
     </article>
   `;
 }
@@ -720,6 +705,41 @@ function conversionFunnel() {
               ` : ""}
             </div>
           </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function chinaExpansionMap() {
+  const cities = Array.isArray(cockpitData.cityExpansion) && cockpitData.cityExpansion.length
+    ? cockpitData.cityExpansion
+    : [
+      { name: "深圳", province: "广东", coaches: 102, stores: 462, x: 73, y: 78, status: "已开拓" },
+      { name: "广州", province: "广东", coaches: 47, stores: 212, x: 68, y: 75, status: "已开拓" }
+    ];
+  return `
+    <section class="china-map">
+      <div class="china-map-canvas">
+        <svg viewBox="0 0 520 360" aria-hidden="true">
+          <path d="M138 84 L214 54 L303 66 L384 104 L430 176 L404 246 L338 292 L248 308 L158 270 L96 206 L82 130 Z" />
+          <path d="M248 308 L274 338 L226 334 Z" />
+          <path d="M404 246 L454 270 L420 288 Z" />
+        </svg>
+        ${cities.map((city) => `
+          <div class="city-pin" style="--x:${city.x}; --y:${city.y};">
+            <i></i>
+            <section>
+              <strong>${city.name}</strong>
+              <span>${city.province || city.status || "开拓城市"}</span>
+              <b>${count(city.coaches)}教练 / ${count(city.stores)}门店</b>
+            </section>
+          </div>
+        `).join("")}
+      </div>
+      <div class="city-expansion-list">
+        ${cities.map((city) => `
+          <span><b>${city.name}</b>${count(city.coaches)}教练 · ${count(city.stores)}门店</span>
         `).join("")}
       </div>
     </section>
@@ -1120,14 +1140,17 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const okrRows = excelRows(sheets["运营中心OKR"] || sheets["总部运营中心OKR"] || sheets["六部门OKR"]);
   const projectRows = excelRows(sheets["项目进度"] || sheets["六项目OKR"]);
   const funnelRows = excelRows(sheets["转化漏斗"] || sheets["流量到转化漏斗"] || sheets["运营漏斗"]);
+  const cityExpansionRows = excelRows(sheets["城市拓展"] || sheets["开拓城市"] || sheets["城市地图"] || sheets["中国地图"]);
   const meta = Object.fromEntries(metaRows.map((r) => [excelText(r.key || r["配置项"]), excelText(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !excelText(r.period_type) || excelText(r.period_type, "month") === "month");
   const citySummaryRows = monthlyRows.filter(excelIsCitySummaryRow);
   const districtRows = monthlyRows.filter(excelIsDistrictMetricRow);
   const okrGroups = excelGroupOkrRows(okrRows, "okr");
+  const personOkrGroups = excelGroupOkrRows(okrRows, "person");
   const projectGroups = excelGroupOkrRows(projectRows, "project");
   const funnel = funnelRows.map(excelFunnelRow).filter((item) => item.name).sort((a, b) => (a.order || 999) - (b.order || 999));
+  const cityExpansion = cityExpansionRows.map(excelCityExpansionRow).filter((item) => item.name);
 
   for (const view of ["month", "week", "day"]) {
     const cities = citySummaryRows.map((row) => excelMonthlyCityRow(row, districtRows));
@@ -1166,9 +1189,10 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
     views,
     departments: okrGroups,
     projects: projectGroups,
-    people: [],
+    people: personOkrGroups,
     peopleDetails: [],
-    conversionFunnel: funnel
+    conversionFunnel: funnel,
+    cityExpansion
   };
 }
 
@@ -1205,13 +1229,18 @@ function excelGroupOkrRows(rows, type) {
   const groups = new Map();
   rows.forEach((row, index) => {
     const item = type === "project" ? excelProjectRow(row) : excelSimpleOkrRow(row);
-    const groupName = type === "project" ? item.name : (item.name || item.owner || "运营中心");
+    const role = excelText(excelFirst(row, ["角色", "岗位", "职务"]));
+    const person = excelText(excelFirst(row, ["负责人", "姓名", "owner"]));
+    const groupName = type === "project" ? item.name : type === "person" ? (person || item.owner || "未指定") : (item.name || item.owner || "运营中心");
     const key = `${groupName}__${item.owner}__${item.objective}`;
     if (!groups.has(key)) {
       groups.set(key, {
         ...item,
         code: item.code || `${type === "project" ? "P" : "O"}${groups.size + 1}`,
         name: groupName,
+        role,
+        department: item.name,
+        owner: type === "person" ? (role || item.name || "未填角色") : item.owner,
         title: item.objective || item.title || groupName,
         target: "多个KR",
         done: "按KR推进",
@@ -1265,6 +1294,28 @@ function excelFunnelRow(row) {
     channels: ["美团", "抖音", "私域", "其他"]
       .map((name) => ({ name, value: excelText(excelFirst(row, [name, `${name}数值`, `${name}数据`])) }))
       .filter((item) => item.value)
+  };
+}
+
+function excelCityExpansionRow(row) {
+  const name = excelText(excelFirst(row, ["城市", "开拓城市", "名称"]));
+  const defaults = {
+    "深圳": { x: 73, y: 78 },
+    "广州": { x: 68, y: 75 },
+    "上海": { x: 78, y: 52 },
+    "北京": { x: 65, y: 31 },
+    "成都": { x: 49, y: 58 },
+    "杭州": { x: 76, y: 55 }
+  };
+  const fallback = defaults[name] || { x: 60, y: 58 };
+  return {
+    name,
+    province: excelText(excelFirst(row, ["省份", "省"])),
+    coaches: excelNum(excelFirst(row, ["教练数", "教练人数"])),
+    stores: excelNum(excelFirst(row, ["门店数", "入驻门店数"])),
+    x: excelNum(excelFirst(row, ["地图X", "X", "x"]), fallback.x),
+    y: excelNum(excelFirst(row, ["地图Y", "Y", "y"]), fallback.y),
+    status: excelText(excelFirst(row, ["状态", "开拓状态"]), "已开拓")
   };
 }
 
@@ -1381,6 +1432,7 @@ function jsonPayloadsToSheets(payloads) {
     "教练经营": [],
     "城区分布": [],
     "转化漏斗": currentFunnelRows(),
+    "城市拓展": currentCityExpansionRows(),
     "经营重点": matrixFromRows([
       { "类型": "经营建议", "内容": "已使用后台 JSON 自动汇总，请重点检查订单状态、退款、转化字段是否与后台口径一致。" }
     ], ["类型", "内容"])
@@ -1607,6 +1659,20 @@ function currentFunnelRows() {
       "其他": channels["其他"]
     };
   });
+  return matrixFromRows(rows, headers);
+}
+
+function currentCityExpansionRows() {
+  const headers = ["城市", "省份", "教练数", "门店数", "地图X", "地图Y", "状态"];
+  const rows = (cockpitData?.cityExpansion || []).map((item) => ({
+    "城市": item.name,
+    "省份": item.province,
+    "教练数": item.coaches,
+    "门店数": item.stores,
+    "地图X": item.x,
+    "地图Y": item.y,
+    "状态": item.status
+  }));
   return matrixFromRows(rows, headers);
 }
 

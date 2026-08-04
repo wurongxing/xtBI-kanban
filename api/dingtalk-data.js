@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-04-five-sheet-okr-funnel-v10";
+const API_VERSION = "2026-08-05-six-sheet-hq-map-v11";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -10,7 +10,8 @@ const DEFAULT_REQUIRED_SHEETS = [
   "经营数据表",
   "运营中心OKR",
   "项目进度",
-  "转化漏斗"
+  "转化漏斗",
+  "城市拓展"
 ];
 const DETAIL_SHEETS = [];
 const SHEET_COLUMN_LIMITS = {};
@@ -19,7 +20,8 @@ const SHEET_ALIASES = {
   "经营数据表": ["双城经营", "城市经营", "经营数据"],
   "运营中心OKR": ["总部运营中心OKR", "六部门OKR", "部门OKR", "公司KR"],
   "项目进度": ["六项目OKR", "六项目", "项目OKR"],
-  "转化漏斗": ["流量到转化漏斗", "运营漏斗", "漏斗"]
+  "转化漏斗": ["流量到转化漏斗", "运营漏斗", "漏斗"],
+  "城市拓展": ["开拓城市", "城市地图", "城市布局", "中国地图"]
 };
 const MONEY_KEYS = ["金额", "实付金额", "支付金额", "订单金额", "营收", "收入", "体验课金额", "正课金额"];
 const TRIAL_COUNT_KEYS = ["下单数", "体验课数", "体验课下单数", "订单数"];
@@ -477,14 +479,17 @@ function transformWorkbook(sheets) {
   const okrRows = rowsFromMatrix(sheets["运营中心OKR"]);
   const projectRows = rowsFromMatrix(sheets["项目进度"]);
   const funnelRows = rowsFromMatrix(sheets["转化漏斗"]);
+  const cityExpansionRows = rowsFromMatrix(sheets["城市拓展"]);
   const meta = Object.fromEntries(metaRows.map((r) => [text(r.key || r["配置项"]), text(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !text(r.period_type) || text(r.period_type, "month") === "month");
   const citySummaryRows = monthlyRows.filter(isCitySummaryRow);
   const districtRows = monthlyRows.filter(isDistrictMetricRow);
   const okrGroups = groupOkrRows(okrRows, "okr");
+  const personOkrGroups = groupOkrRows(okrRows, "person");
   const projectGroups = groupOkrRows(projectRows, "project");
   const funnel = funnelRows.map(funnelFromRow).filter((item) => item.name).sort((a, b) => (a.order || 999) - (b.order || 999));
+  const cityExpansion = cityExpansionRows.map(cityExpansionFromRow).filter((item) => item.name);
 
   for (const view of ["month", "week", "day"]) {
     const cities = citySummaryRows.map((r) => buildMonthlyCityRow(r, districtRows));
@@ -529,9 +534,10 @@ function transformWorkbook(sheets) {
     views,
     departments: okrGroups,
     projects: projectGroups,
-    people: [],
+    people: personOkrGroups,
     peopleDetails: [],
-    conversionFunnel: funnel
+    conversionFunnel: funnel,
+    cityExpansion
   };
 }
 
@@ -583,13 +589,18 @@ function groupOkrRows(rows, type) {
   const groups = new Map();
   rows.forEach((row, index) => {
     const item = type === "project" ? projectFromRow(row) : okrFromRow(row);
-    const groupName = type === "project" ? item.name : (item.name || item.owner || "运营中心");
+    const role = text(firstValue(row, ["角色", "岗位", "职务"]));
+    const person = text(firstValue(row, ["负责人", "姓名", "owner"]));
+    const groupName = type === "project" ? item.name : type === "person" ? (person || item.owner || "未指定") : (item.name || item.owner || "运营中心");
     const key = `${groupName}__${item.owner}__${item.objective}`;
     if (!groups.has(key)) {
       groups.set(key, {
         ...item,
         code: item.code || `${type === "project" ? "P" : "O"}${groups.size + 1}`,
         name: groupName,
+        role,
+        department: item.name,
+        owner: type === "person" ? (role || item.name || "未填角色") : item.owner,
         title: item.objective || item.title || groupName,
         target: "多个KR",
         done: "按KR推进",
@@ -643,6 +654,28 @@ function funnelFromRow(row) {
     channels: ["美团", "抖音", "私域", "其他"]
       .map((name) => ({ name, value: text(firstValue(row, [name, `${name}数值`, `${name}数据`])) }))
       .filter((item) => item.value)
+  };
+}
+
+function cityExpansionFromRow(row) {
+  const name = text(firstValue(row, ["城市", "开拓城市", "名称"]));
+  const defaults = {
+    深圳: { x: 73, y: 78 },
+    广州: { x: 68, y: 75 },
+    上海: { x: 78, y: 52 },
+    北京: { x: 65, y: 31 },
+    成都: { x: 49, y: 58 },
+    杭州: { x: 76, y: 55 }
+  };
+  const fallback = defaults[name] || { x: 60, y: 58 };
+  return {
+    name,
+    province: text(firstValue(row, ["省份", "省"])),
+    coaches: num(firstValue(row, ["教练数", "教练人数"])),
+    stores: num(firstValue(row, ["门店数", "入驻门店数"])),
+    x: num(firstValue(row, ["地图X", "X", "x"]), fallback.x),
+    y: num(firstValue(row, ["地图Y", "Y", "y"]), fallback.y),
+    status: text(firstValue(row, ["状态", "开拓状态"]), "已开拓")
   };
 }
 
