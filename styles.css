@@ -368,33 +368,30 @@ button {
 }
 .district-table-wrap {
   max-height: 360px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid rgba(30, 115, 255, 0.35);
   border-radius: 8px;
   background: rgba(1, 10, 28, 0.62);
 }
 .district-table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 10px;
 }
 .district-table th,
 .district-table td {
-  min-width: 76px;
-  padding: 9px 10px;
+  padding: 7px 4px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 .district-table th:first-child,
 .district-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  min-width: 92px;
+  width: 58px;
   text-align: left;
-  background: #061735;
+  background: rgba(6, 23, 53, 0.96);
 }
 .district-table th {
   position: sticky;
@@ -403,8 +400,19 @@ button {
   color: var(--muted);
   background: #061735;
 }
-.district-table th:first-child {
-  z-index: 3;
+.district-table thead tr:nth-child(2) th {
+  top: 30px;
+}
+.district-table .district-group-row th {
+  height: 30px;
+  color: var(--city-color);
+  background: rgba(0, 71, 255, 0.18);
+  border-bottom-color: rgba(255, 225, 0, 0.22);
+}
+.district-table .district-group-row th:first-child {
+  top: 0;
+  z-index: 4;
+  color: #fff;
 }
 .district-table tbody tr:hover td {
   background: rgba(0, 71, 255, 0.12);
@@ -1062,6 +1070,29 @@ button {
   line-height: 1.35;
 }
 .okr-kr-list b { color: var(--okr-accent, var(--yellow)); font-size: 12px; }
+.okr-kr-detail {
+  padding: 7px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.okr-kr-detail span {
+  display: grid;
+  gap: 4px;
+}
+.okr-kr-detail span strong {
+  color: #eaf5ff;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.okr-kr-detail span em {
+  color: var(--yellow);
+  font-style: normal;
+  font-size: 11px;
+}
+.okr-kr-detail span small {
+  color: #9fd6ff;
+  font-size: 11px;
+  line-height: 1.45;
+}
 .okr-action {
   margin: 10px 0 0;
   color: #9fd6ff;

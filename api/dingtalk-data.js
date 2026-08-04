@@ -2,14 +2,15 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-04-four-sheet-monthly-v7";
+const API_VERSION = "2026-08-04-five-sheet-okr-funnel-v10";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
   "首页配置",
   "经营数据表",
   "运营中心OKR",
-  "项目进度"
+  "项目进度",
+  "转化漏斗"
 ];
 const DETAIL_SHEETS = [];
 const SHEET_COLUMN_LIMITS = {};
@@ -17,7 +18,8 @@ const SHEET_ALIASES = {
   "首页配置": ["基础配置", "首页文字", "品牌配置"],
   "经营数据表": ["双城经营", "城市经营", "经营数据"],
   "运营中心OKR": ["总部运营中心OKR", "六部门OKR", "部门OKR", "公司KR"],
-  "项目进度": ["六项目OKR", "六项目", "项目OKR"]
+  "项目进度": ["六项目OKR", "六项目", "项目OKR"],
+  "转化漏斗": ["流量到转化漏斗", "运营漏斗", "漏斗"]
 };
 const MONEY_KEYS = ["金额", "实付金额", "支付金额", "订单金额", "营收", "收入", "体验课金额", "正课金额"];
 const TRIAL_COUNT_KEYS = ["下单数", "体验课数", "体验课下单数", "订单数"];
@@ -474,15 +476,19 @@ function transformWorkbook(sheets) {
   const cityRows = rowsFromMatrix(sheets["经营数据表"]);
   const okrRows = rowsFromMatrix(sheets["运营中心OKR"]);
   const projectRows = rowsFromMatrix(sheets["项目进度"]);
+  const funnelRows = rowsFromMatrix(sheets["转化漏斗"]);
   const meta = Object.fromEntries(metaRows.map((r) => [text(r.key || r["配置项"]), text(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !text(r.period_type) || text(r.period_type, "month") === "month");
   const citySummaryRows = monthlyRows.filter(isCitySummaryRow);
   const districtRows = monthlyRows.filter(isDistrictMetricRow);
+  const okrGroups = groupOkrRows(okrRows, "okr");
+  const projectGroups = groupOkrRows(projectRows, "project");
+  const funnel = funnelRows.map(funnelFromRow).filter((item) => item.name).sort((a, b) => (a.order || 999) - (b.order || 999));
 
   for (const view of ["month", "week", "day"]) {
     const cities = citySummaryRows.map((r) => buildMonthlyCityRow(r, districtRows));
-    const companyKr = okrRows.map(okrFromRow);
+    const companyKr = okrGroups;
 
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
     const completed = cities.reduce((sum, city) => sum + city.completed, 0);
@@ -521,11 +527,11 @@ function transformWorkbook(sheets) {
       apiVersion: sheets.__syncInfo?.apiVersion || API_VERSION
     },
     views,
-    departments: okrRows.map(okrFromRow),
-    projects: projectRows.map(projectFromRow),
+    departments: okrGroups,
+    projects: projectGroups,
     people: [],
     peopleDetails: [],
-    conversionFunnel: []
+    conversionFunnel: funnel
   };
 }
 
@@ -535,7 +541,7 @@ function currentMonthPeriodText() {
 }
 
 function okrFromRow(r) {
-  const rate = num(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  const rate = rateNum(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
   return {
     code: text(firstValue(r, ["KR编号", "编号", "序号"])),
     title: text(firstValue(r, ["KR名称", "关键结果", "标题", "名称"])),
@@ -557,7 +563,7 @@ function okrFromRow(r) {
 }
 
 function projectFromRow(r) {
-  const rate = num(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  const rate = rateNum(firstValue(r, ["完成率_%", "完成率", "进度_%", "进度"]));
   return {
     name: text(firstValue(r, ["项目", "项目名称", "名称"])),
     objective: text(firstValue(r, ["Objective", "O", "目标", "项目目标"])),
@@ -570,6 +576,73 @@ function projectFromRow(r) {
     risk: text(firstValue(r, ["风险/卡点", "风险", "卡点"])),
     action: text(firstValue(r, ["下一步具体动作", "关键行动", "动作"])),
     krs: splitKrs(firstValue(r, ["关键KR", "KR项", "关键结果"]))
+  };
+}
+
+function groupOkrRows(rows, type) {
+  const groups = new Map();
+  rows.forEach((row, index) => {
+    const item = type === "project" ? projectFromRow(row) : okrFromRow(row);
+    const groupName = type === "project" ? item.name : (item.name || item.owner || "运营中心");
+    const key = `${groupName}__${item.owner}__${item.objective}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ...item,
+        code: item.code || `${type === "project" ? "P" : "O"}${groups.size + 1}`,
+        name: groupName,
+        title: item.objective || item.title || groupName,
+        target: "多个KR",
+        done: "按KR推进",
+        rate: 0,
+        action: "",
+        krs: []
+      });
+    }
+    const group = groups.get(key);
+    const kr = krDetailFromRow(row, item, index);
+    group.krs.push(kr);
+    group.rate = round(avg(group.krs.map((entry) => Number(entry.rate || 0))), 1);
+    group.action = group.krs.map((entry) => entry.action).filter(Boolean).slice(0, 2).join("；");
+    group.target = `${group.krs.length}个KR`;
+    group.done = `${group.rate}%`;
+  });
+  return Array.from(groups.values());
+}
+
+function krDetailFromRow(row, item, index) {
+  return {
+    code: item.code || text(firstValue(row, ["KR编号", "编号", "序号"]), `KR${index + 1}`),
+    title: text(firstValue(row, ["关键KR", "KR项", "关键结果", "KR名称", "标题", "名称"]), item.title),
+    target: item.target,
+    done: item.done,
+    unit: item.unit,
+    rate: item.rate,
+    owner: item.owner,
+    risk: item.risk,
+    action: item.action,
+    weeklyActions: weeklyActionsFromRow(row)
+  };
+}
+
+function weeklyActionsFromRow(row) {
+  return [
+    ["第1周", firstValue(row, ["第1周动作", "第一周动作", "W1动作", "周1动作"])],
+    ["第2周", firstValue(row, ["第2周动作", "第二周动作", "W2动作", "周2动作"])],
+    ["第3周", firstValue(row, ["第3周动作", "第三周动作", "W3动作", "周3动作"])],
+    ["第4周", firstValue(row, ["第4周动作", "第四周动作", "W4动作", "周4动作"])],
+    ["第5周", firstValue(row, ["第5周动作", "第五周动作", "W5动作", "周5动作"])]
+  ].map(([week, action]) => ({ week, action: text(action) })).filter((item) => item.action);
+}
+
+function funnelFromRow(row) {
+  return {
+    order: num(firstValue(row, ["排序", "漏斗层级", "层级"])),
+    name: text(firstValue(row, ["环节", "漏斗环节", "名称"])),
+    value: text(firstValue(row, ["数值", "主数值", "主内容", "数量"])),
+    note: text(firstValue(row, ["副标题", "说明", "备注"])),
+    channels: ["美团", "抖音", "私域", "其他"]
+      .map((name) => ({ name, value: text(firstValue(row, [name, `${name}数值`, `${name}数据`])) }))
+      .filter((item) => item.value)
   };
 }
 
@@ -587,10 +660,10 @@ function buildMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = text(r["城市"]);
   const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
   const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
-  const rate = num(firstValue(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
+  const rate = rateNum(firstValue(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
   const weekGoal = num(firstValue(r, ["周目标_万元", "周目标 万元", "周目标"]));
   const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
-  const weekRate = num(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
+  const weekRate = rateNum(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
   const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
   const districtMetrics = allDistrictRows
     .filter((row) => normalizeCity(text(row["城市"])) === normalizeCity(cityName))
@@ -619,22 +692,22 @@ function buildMonthlyCityRow(r, allDistrictRows = []) {
 
 function districtMetricFromRow(r) {
   const monthTrials = num(firstValue(r, ["月度体验课", "月度体验课数", "本月体验课"]));
-  const monthDeals = num(firstValue(r, ["月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
+  const monthDeals = num(firstValue(r, ["月度转化数", "月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
   const yesterdayTrials = num(firstValue(r, ["昨日体验课", "昨日体验课数"]));
-  const yesterdayDeals = num(firstValue(r, ["昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
+  const yesterdayDeals = num(firstValue(r, ["昨日转化数", "昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
   const expiringLessons = num(firstValue(r, ["正课到期数", "到期正课数", "到期用户数"]));
   const renewals = num(firstValue(r, ["续课数", "续约数"]));
   return {
     name: text(firstValue(r, ["区域", "城区", "区"])),
     monthTrials,
     monthDeals,
-    monthConversionRate: num(firstValue(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? round((monthDeals / monthTrials) * 100, 1) : 0),
+    monthConversionRate: rateNum(firstValue(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? round((monthDeals / monthTrials) * 100, 1) : 0),
     yesterdayTrials,
     yesterdayDeals,
-    yesterdayConversionRate: num(firstValue(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? round((yesterdayDeals / yesterdayTrials) * 100, 1) : 0),
+    yesterdayConversionRate: rateNum(firstValue(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? round((yesterdayDeals / yesterdayTrials) * 100, 1) : 0),
     expiringLessons,
     renewals,
-    renewalRate: num(firstValue(r, ["续课率", "续约率"]), expiringLessons ? round((renewals / expiringLessons) * 100, 1) : 0),
+    renewalRate: rateNum(firstValue(r, ["续课率", "续约率"]), expiringLessons ? round((renewals / expiringLessons) * 100, 1) : 0),
     coachesNewMonth: num(firstValue(r, ["月度新增教练数", "本月新增教练数"])),
     coachesNewYesterday: num(firstValue(r, ["昨日新增教练数"])),
     storesNewMonth: num(firstValue(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
@@ -1095,7 +1168,7 @@ function rowsFromMatrix(matrix) {
 }
 
 function isHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "日期", "类型", "排序"].includes(text(value).trim());
+  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "日期", "类型", "排序", "环节", "漏斗层级", "数值"].includes(text(value).trim());
 }
 
 function summarizePeople(rows) {
@@ -1231,6 +1304,14 @@ function num(value, fallback = 0) {
   if (value == null || value === "") return fallback;
   const n = Number(String(value).replace(/,/g, "").replace("%", ""));
   return Number.isFinite(n) ? n : fallback;
+}
+
+function rateNum(value, fallback = 0) {
+  if (value == null || value === "") return fallback;
+  const raw = String(value);
+  const n = num(value, fallback);
+  if (!raw.includes("%") && n > 0 && n <= 1) return round(n * 100, 1);
+  return n;
 }
 
 function avg(values) {

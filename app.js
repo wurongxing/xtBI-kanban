@@ -482,21 +482,28 @@ function districtOperatingTable(rows) {
       <div class="district-table-wrap">
         <table class="district-table">
           <thead>
+            <tr class="district-group-row">
+              <th rowspan="2">区域</th>
+              <th colspan="3">月度体验课</th>
+              <th colspan="3">昨日体验课</th>
+              <th colspan="3">正课续课</th>
+              <th colspan="2">教练新增</th>
+              <th colspan="2">门店新增</th>
+            </tr>
             <tr>
-              <th>区域</th>
-              <th>月体验课</th>
-              <th>月转正课</th>
-              <th>月转化率</th>
+              <th>体验课</th>
+              <th>转化数</th>
+              <th>转化率</th>
               <th>昨日体验课</th>
-              <th>昨日转正课</th>
-              <th>昨日转化率</th>
+              <th>转化数</th>
+              <th>转化率</th>
               <th>正课到期</th>
               <th>续课</th>
               <th>续课率</th>
-              <th>月新增教练</th>
-              <th>昨新增教练</th>
-              <th>月新增门店</th>
-              <th>昨新增门店</th>
+              <th>月度</th>
+              <th>昨日</th>
+              <th>月度</th>
+              <th>昨日</th>
             </tr>
           </thead>
           <tbody>
@@ -836,10 +843,28 @@ function okrCard(item) {
       </div>
       <div class="okr-progress" style="--value:${item.rate}"><i></i></div>
       <ul class="okr-kr-list">
-        ${krs.map((kr, index) => `<li><b>KR${index + 1}</b><span>${kr}</span></li>`).join("")}
+        ${krs.map((kr, index) => okrKrItem(kr, index)).join("")}
       </ul>
       <p class="okr-action">动作：${item.action || "待补充"}</p>
     </section>
+  `;
+}
+
+function okrKrItem(kr, index) {
+  if (typeof kr === "string") {
+    return `<li><b>KR${index + 1}</b><span>${kr}</span></li>`;
+  }
+  const value = kr.unit ? `${kr.done || "--"}/${kr.target || "--"}${kr.unit}` : `${kr.done || "--"}/${kr.target || "--"}`;
+  const weeks = Array.isArray(kr.weeklyActions) ? kr.weeklyActions : [];
+  return `
+    <li class="okr-kr-detail">
+      <b>${kr.code || `KR${index + 1}`}</b>
+      <span>
+        <strong>${kr.title || "KR待补充"}</strong>
+        <em>${value} · ${kr.rate || 0}%</em>
+        ${weeks.length ? `<small>${weeks.map((item) => `${item.week}：${item.action}`).join("；")}</small>` : ""}
+      </span>
+    </li>
   `;
 }
 
@@ -862,7 +887,7 @@ function projectProgressCard(item) {
       </div>
       <div class="okr-progress" style="--value:${item.rate}"><i></i></div>
       <p class="okr-objective">O：${item.objective}</p>
-      <ul class="okr-kr-list">${krs.map((kr, index) => `<li><b>KR${index + 1}</b><span>${kr}</span></li>`).join("")}</ul>
+      <ul class="okr-kr-list">${krs.map((kr, index) => okrKrItem(kr, index)).join("")}</ul>
       <p class="okr-action">下一步：${item.action || "待补充"}</p>
     </section>
   `;
@@ -1094,15 +1119,19 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const cityRows = excelRows(sheets["经营数据表"] || sheets["双城经营"]);
   const okrRows = excelRows(sheets["运营中心OKR"] || sheets["总部运营中心OKR"] || sheets["六部门OKR"]);
   const projectRows = excelRows(sheets["项目进度"] || sheets["六项目OKR"]);
+  const funnelRows = excelRows(sheets["转化漏斗"] || sheets["流量到转化漏斗"] || sheets["运营漏斗"]);
   const meta = Object.fromEntries(metaRows.map((r) => [excelText(r.key || r["配置项"]), excelText(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !excelText(r.period_type) || excelText(r.period_type, "month") === "month");
   const citySummaryRows = monthlyRows.filter(excelIsCitySummaryRow);
   const districtRows = monthlyRows.filter(excelIsDistrictMetricRow);
+  const okrGroups = excelGroupOkrRows(okrRows, "okr");
+  const projectGroups = excelGroupOkrRows(projectRows, "project");
+  const funnel = funnelRows.map(excelFunnelRow).filter((item) => item.name).sort((a, b) => (a.order || 999) - (b.order || 999));
 
   for (const view of ["month", "week", "day"]) {
     const cities = citySummaryRows.map((row) => excelMonthlyCityRow(row, districtRows));
-    const companyKr = okrRows.map(excelSimpleOkrRow);
+    const companyKr = okrGroups;
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
     const completed = cities.reduce((sum, city) => sum + city.completed, 0);
     const time = cities.length ? average(cities.map((city) => city.time)) : 0;
@@ -1135,16 +1164,16 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
       syncMode
     },
     views,
-    departments: okrRows.map(excelSimpleOkrRow),
-    projects: projectRows.map(excelProjectRow),
+    departments: okrGroups,
+    projects: projectGroups,
     people: [],
     peopleDetails: [],
-    conversionFunnel: []
+    conversionFunnel: funnel
   };
 }
 
 function excelSimpleOkrRow(r) {
-  const rate = excelNum(excelFirst(r, ["完成率_%", "完成率", "进度_%", "进度"]));
+  const rate = excelRateNum(excelFirst(r, ["完成率_%", "完成率", "进度_%", "进度"]));
   return {
     code: excelText(excelFirst(r, ["KR编号", "编号", "序号"])),
     title: excelText(excelFirst(r, ["KR名称", "关键结果", "标题", "名称"])),
@@ -1172,6 +1201,73 @@ function excelProjectRow(r) {
   };
 }
 
+function excelGroupOkrRows(rows, type) {
+  const groups = new Map();
+  rows.forEach((row, index) => {
+    const item = type === "project" ? excelProjectRow(row) : excelSimpleOkrRow(row);
+    const groupName = type === "project" ? item.name : (item.name || item.owner || "运营中心");
+    const key = `${groupName}__${item.owner}__${item.objective}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ...item,
+        code: item.code || `${type === "project" ? "P" : "O"}${groups.size + 1}`,
+        name: groupName,
+        title: item.objective || item.title || groupName,
+        target: "多个KR",
+        done: "按KR推进",
+        rate: 0,
+        action: "",
+        krs: []
+      });
+    }
+    const group = groups.get(key);
+    const kr = excelKrDetailFromRow(row, item, index);
+    group.krs.push(kr);
+    group.rate = average(group.krs.map((entry) => Number(entry.rate || 0)));
+    group.action = group.krs.map((entry) => entry.action).filter(Boolean).slice(0, 2).join("；");
+    group.target = `${group.krs.length}个KR`;
+    group.done = `${group.rate}%`;
+  });
+  return Array.from(groups.values());
+}
+
+function excelKrDetailFromRow(row, item, index) {
+  return {
+    code: item.code || excelText(excelFirst(row, ["KR编号", "编号", "序号"]), `KR${index + 1}`),
+    title: excelText(excelFirst(row, ["关键KR", "KR项", "关键结果", "KR名称", "标题", "名称"]), item.title),
+    target: item.target,
+    done: item.done,
+    unit: item.unit,
+    rate: item.rate,
+    owner: item.owner,
+    risk: item.risk,
+    action: item.action,
+    weeklyActions: excelWeeklyActionsFromRow(row)
+  };
+}
+
+function excelWeeklyActionsFromRow(row) {
+  return [
+    ["第1周", excelFirst(row, ["第1周动作", "第一周动作", "W1动作", "周1动作"])],
+    ["第2周", excelFirst(row, ["第2周动作", "第二周动作", "W2动作", "周2动作"])],
+    ["第3周", excelFirst(row, ["第3周动作", "第三周动作", "W3动作", "周3动作"])],
+    ["第4周", excelFirst(row, ["第4周动作", "第四周动作", "W4动作", "周4动作"])],
+    ["第5周", excelFirst(row, ["第5周动作", "第五周动作", "W5动作", "周5动作"])]
+  ].map(([week, action]) => ({ week, action: excelText(action) })).filter((item) => item.action);
+}
+
+function excelFunnelRow(row) {
+  return {
+    order: excelNum(excelFirst(row, ["排序", "漏斗层级", "层级"])),
+    name: excelText(excelFirst(row, ["环节", "漏斗环节", "名称"])),
+    value: excelText(excelFirst(row, ["数值", "主数值", "主内容", "数量"])),
+    note: excelText(excelFirst(row, ["副标题", "说明", "备注"])),
+    channels: ["美团", "抖音", "私域", "其他"]
+      .map((name) => ({ name, value: excelText(excelFirst(row, [name, `${name}数值`, `${name}数据`])) }))
+      .filter((item) => item.value)
+  };
+}
+
 function excelIsCitySummaryRow(r) {
   const level = excelText(excelFirst(r, ["数据层级", "层级", "类型"]));
   return !excelIsDistrictMetricRow(r) || level === "城市";
@@ -1186,10 +1282,10 @@ function excelMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = excelText(r["城市"]);
   const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
   const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
-  const rate = excelNum(excelFirst(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
+  const rate = excelRateNum(excelFirst(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
   const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]));
   const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
-  const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
+  const weekRate = excelRateNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
   const districtMetrics = allDistrictRows
     .filter((row) => normalizeCity(excelText(row["城市"])) === normalizeCity(cityName))
     .map(excelDistrictMetricFromRow)
@@ -1217,22 +1313,22 @@ function excelMonthlyCityRow(r, allDistrictRows = []) {
 
 function excelDistrictMetricFromRow(r) {
   const monthTrials = excelNum(excelFirst(r, ["月度体验课", "月度体验课数", "本月体验课"]));
-  const monthDeals = excelNum(excelFirst(r, ["月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
+  const monthDeals = excelNum(excelFirst(r, ["月度转化数", "月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
   const yesterdayTrials = excelNum(excelFirst(r, ["昨日体验课", "昨日体验课数"]));
-  const yesterdayDeals = excelNum(excelFirst(r, ["昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
+  const yesterdayDeals = excelNum(excelFirst(r, ["昨日转化数", "昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
   const expiringLessons = excelNum(excelFirst(r, ["正课到期数", "到期正课数", "到期用户数"]));
   const renewals = excelNum(excelFirst(r, ["续课数", "续约数"]));
   return {
     name: excelText(excelFirst(r, ["区域", "城区", "区"])),
     monthTrials,
     monthDeals,
-    monthConversionRate: excelNum(excelFirst(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? percent(monthDeals, monthTrials) : 0),
+    monthConversionRate: excelRateNum(excelFirst(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? percent(monthDeals, monthTrials) : 0),
     yesterdayTrials,
     yesterdayDeals,
-    yesterdayConversionRate: excelNum(excelFirst(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? percent(yesterdayDeals, yesterdayTrials) : 0),
+    yesterdayConversionRate: excelRateNum(excelFirst(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? percent(yesterdayDeals, yesterdayTrials) : 0),
     expiringLessons,
     renewals,
-    renewalRate: excelNum(excelFirst(r, ["续课率", "续约率"]), expiringLessons ? percent(renewals, expiringLessons) : 0),
+    renewalRate: excelRateNum(excelFirst(r, ["续课率", "续约率"]), expiringLessons ? percent(renewals, expiringLessons) : 0),
     coachesNewMonth: excelNum(excelFirst(r, ["月度新增教练数", "本月新增教练数"])),
     coachesNewYesterday: excelNum(excelFirst(r, ["昨日新增教练数"])),
     storesNewMonth: excelNum(excelFirst(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
@@ -1881,7 +1977,7 @@ function excelRows(matrix) {
 }
 
 function excelIsHeader(value) {
-  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "区域"].includes(excelText(value));
+  return ["period_type", "城市", "KR编号", "项目", "项目名称", "姓名", "部门", "模块", "key", "value", "配置项", "内容", "动作ID", "负责人", "区域", "环节", "漏斗层级", "数值"].includes(excelText(value));
 }
 
 function excelText(value, fallback = "") {
@@ -1907,6 +2003,14 @@ function excelNum(value, fallback = 0) {
   if (value == null || value === "") return fallback;
   const numeric = Number(String(value).replace(/,/g, "").replace("%", ""));
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function excelRateNum(value, fallback = 0) {
+  if (value == null || value === "") return fallback;
+  const raw = String(value);
+  const numeric = excelNum(value, fallback);
+  if (!raw.includes("%") && numeric > 0 && numeric <= 1) return Math.round(numeric * 1000) / 10;
+  return numeric;
 }
 
 function excelSum(rows, key) {
