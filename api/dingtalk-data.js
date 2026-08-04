@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-03-stable-dingtalk-partial-sync-v3";
+const API_VERSION = "2026-08-04-city-sheet-date-auto-v5";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -15,20 +15,20 @@ const DEFAULT_REQUIRED_SHEETS = [
   "教练档案",
   "教练门店关系",
   "体验课流水",
-  "续课流水",
+  "正课流水",
   "转化漏斗",
   "经营重点"
 ];
-const DETAIL_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "续课流水"];
+const DETAIL_SHEETS = ["门店明细", "教练档案", "教练门店关系", "体验课流水", "正课流水"];
 const SHEET_COLUMN_LIMITS = {
   "门店明细": "M",
   "教练档案": "K",
   "教练门店关系": "H",
   "体验课流水": "Q",
-  "续课流水": "Q"
+  "正课流水": "Q"
 };
 const SHEET_ALIASES = {
-  "续课流水": ["正课流水", "正课订单", "正课数据", "续课数据"],
+  "正课流水": ["续课流水", "正课订单", "正课数据", "续课数据"],
   "六项目OKR": ["项目进度", "六项目", "项目OKR"],
   "六部门OKR": ["总部运营中心OKR", "部门OKR", "六部门"],
   "经营重点": ["运营提醒", "经营提醒", "风险预警"]
@@ -46,8 +46,9 @@ module.exports = async function handler(req, res) {
   }
 
   const startedAt = Date.now();
+  const deadline = startedAt + clampInt(process.env.DINGTALK_FUNCTION_BUDGET_MS, 3000, 26000, 7500);
   try {
-    const sheets = await fetchAllSheets();
+    const sheets = await fetchAllSheets(deadline);
     const data = transformWorkbook(sheets);
     res.status(200).json(data);
   } catch (error) {
@@ -67,17 +68,21 @@ function setCors(res) {
   res.setHeader("cache-control", "no-store");
 }
 
-async function fetchAllSheets() {
-  const token = await getDingTalkAccessToken();
-  const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token);
+async function fetchAllSheets(deadline) {
+  const token = await getDingTalkAccessToken(deadline);
+  const { mapping, liveKnown } = await resolveWorkbookSheetMapping(token, deadline);
   const sheetNames = requiredSheetNames(mapping, liveKnown);
   const concurrency = clampInt(process.env.DINGTALK_CONCURRENCY, 2, 4, 2);
   const warnings = [];
   const entries = await mapLimit(sheetNames, concurrency, async (name) => {
+    if (!hasTime(deadline, 900)) {
+      warnings.push(syncWarning(name, "", "同步时间预算已到，跳过剩余Sheet，避免Vercel 504"));
+      return [name, []];
+    }
     const sheetId = resolveSheetId(name, mapping, liveKnown);
     if (!sheetId) return [name, []];
     try {
-      const result = await fetchSheetValues(sheetId, token, name);
+      const result = await fetchSheetValues(sheetId, token, name, deadline);
       if (result.warnings.length) warnings.push(...result.warnings);
       return [name, result.values];
     } catch (error) {
@@ -95,8 +100,8 @@ async function fetchAllSheets() {
   return sheets;
 }
 
-async function resolveWorkbookSheetMapping(token) {
-  const liveMapping = await fetchWorkbookSheetMapping(token).catch(() => ({}));
+async function resolveWorkbookSheetMapping(token, deadline) {
+  const liveMapping = await fetchWorkbookSheetMapping(token, deadline).catch(() => ({}));
   if (Object.keys(liveMapping).length) {
     return { mapping: liveMapping, liveKnown: true };
   }
@@ -114,7 +119,7 @@ async function resolveWorkbookSheetMapping(token) {
   };
 }
 
-async function fetchWorkbookSheetMapping(token) {
+async function fetchWorkbookSheetMapping(token, deadline) {
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const templates = process.env.DINGTALK_LIST_SHEETS_URL_TEMPLATE
@@ -129,7 +134,9 @@ async function fetchWorkbookSheetMapping(token) {
       const url = appendQuery(template.replace("{workbookId}", encodeURIComponent(workbookId)), { operatorId });
       const json = await requestJson(url, {
         method: "GET",
-        headers: { "x-acs-dingtalk-access-token": token }
+        headers: { "x-acs-dingtalk-access-token": token },
+        timeoutMs: requestTimeoutMs(deadline),
+        deadline
       }, "获取钉钉工作表列表失败");
       return Object.fromEntries(extractSheetList(json)
         .map((sheet) => [text(sheet.name || sheet.sheetName || sheet.title || sheet.id), text(sheet.id || sheet.sheetId || sheet.name || sheet.title)])
@@ -198,22 +205,22 @@ function parseSheetNameList(raw) {
   return String(raw).split(/[,\n，；;]+/).map((item) => item.trim()).filter(Boolean);
 }
 
-async function fetchSheetValues(sheetId, token, sheetName) {
+async function fetchSheetValues(sheetId, token, sheetName, deadline) {
   const range = rangeForSheet(sheetName);
   if (shouldChunkRange(sheetName, range)) {
-    return fetchSheetValuesChunked(sheetId, token, sheetName, range);
+    return fetchSheetValuesChunked(sheetId, token, sheetName, range, deadline);
   }
   return {
-    values: await fetchSheetRange(sheetId, token, sheetName, range),
+    values: await fetchSheetRange(sheetId, token, sheetName, range, deadline),
     warnings: []
   };
 }
 
-async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
+async function fetchSheetValuesChunked(sheetId, token, sheetName, range, deadline) {
   const parsed = parseA1Range(range);
   if (!parsed) {
     return {
-      values: await fetchSheetRange(sheetId, token, sheetName, range),
+      values: await fetchSheetRange(sheetId, token, sheetName, range, deadline),
       warnings: []
     };
   }
@@ -222,7 +229,7 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
   const headerRange = `${parsed.startCol}${parsed.startRow}:${parsed.endCol}${parsed.startRow}`;
   let header = [];
   try {
-    header = await fetchSheetRange(sheetId, token, sheetName, headerRange);
+    header = await fetchSheetRange(sheetId, token, sheetName, headerRange, deadline);
   } catch (error) {
     warnings.push(syncWarning(sheetName, headerRange, error.message));
   }
@@ -237,7 +244,11 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
   const matrices = [];
   let consecutiveBlankChunks = 0;
   for (const chunkRange of chunks) {
-    const matrix = await fetchChunkWithSplit(sheetId, token, sheetName, chunkRange, warnings);
+    if (!hasTime(deadline, 900)) {
+      warnings.push(syncWarning(sheetName, chunkRange, "同步时间预算已到，停止读取该Sheet剩余分段"));
+      break;
+    }
+    const matrix = await fetchChunkWithSplit(sheetId, token, sheetName, chunkRange, warnings, deadline);
     if (isBlankMatrix(matrix)) {
       consecutiveBlankChunks += 1;
       if (consecutiveBlankChunks >= 1) break;
@@ -254,9 +265,9 @@ async function fetchSheetValuesChunked(sheetId, token, sheetName, range) {
   return { values, warnings };
 }
 
-async function fetchChunkWithSplit(sheetId, token, sheetName, range, warnings) {
+async function fetchChunkWithSplit(sheetId, token, sheetName, range, warnings, deadline) {
   try {
-    return await fetchSheetRange(sheetId, token, sheetName, range);
+    return await fetchSheetRange(sheetId, token, sheetName, range, deadline);
   } catch (error) {
     const parsed = parseA1Range(range);
     const minRows = clampInt(process.env.DINGTALK_MIN_CHUNK_ROWS, 20, 80, 40);
@@ -267,13 +278,18 @@ async function fetchChunkWithSplit(sheetId, token, sheetName, range, warnings) {
     const middle = parsed.startRow + Math.floor(parsed.rowCount / 2) - 1;
     const first = `${parsed.startCol}${parsed.startRow}:${parsed.endCol}${middle}`;
     const second = `${parsed.startCol}${middle + 1}:${parsed.endCol}${parsed.endRow}`;
-    const firstRows = await fetchChunkWithSplit(sheetId, token, sheetName, first, warnings);
-    const secondRows = await fetchChunkWithSplit(sheetId, token, sheetName, second, warnings);
+    const firstRows = await fetchChunkWithSplit(sheetId, token, sheetName, first, warnings, deadline);
+    if (!hasTime(deadline, 900)) {
+      warnings.push(syncWarning(sheetName, second, "同步时间预算已到，停止读取拆分后的剩余分段"));
+      return firstRows;
+    }
+    const secondRows = await fetchChunkWithSplit(sheetId, token, sheetName, second, warnings, deadline);
     return [...firstRows, ...secondRows];
   }
 }
 
-async function fetchSheetRange(sheetId, token, sheetName, rangeText) {
+async function fetchSheetRange(sheetId, token, sheetName, rangeText, deadline) {
+  ensureTime(deadline, `读取钉钉表格失败 sheet=${sheetName} range=${rangeText}`);
   const workbookId = requireEnv("DINGTALK_WORKBOOK_ID");
   const operatorId = requireEnv("DINGTALK_OPERATOR_ID");
   const range = encodeURIComponent(rangeText);
@@ -287,15 +303,18 @@ async function fetchSheetRange(sheetId, token, sheetName, rangeText) {
 
   const json = await requestJsonWithRetry(url, {
     method: "GET",
-    headers: { "x-acs-dingtalk-access-token": token }
+    headers: { "x-acs-dingtalk-access-token": token },
+    timeoutMs: requestTimeoutMs(deadline),
+    deadline
   }, `读取钉钉表格失败 sheet=${sheetName} sheetId=${sheetId} range=${rangeText}`);
   return extractMatrix(json);
 }
 
 async function requestJsonWithRetry(url, options, label) {
-  const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 4, 3);
+  const attempts = clampInt(process.env.DINGTALK_RETRY_ATTEMPTS, 1, 2, 2);
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (options?.deadline) ensureTime(options.deadline, label);
     try {
       return await requestJson(url, options, label);
     } catch (error) {
@@ -315,6 +334,23 @@ function isRetryableDingTalkError(error) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasTime(deadline, reserve = 500) {
+  return !deadline || Date.now() + reserve < deadline;
+}
+
+function ensureTime(deadline, label) {
+  if (!hasTime(deadline, 500)) {
+    throw new Error(`${label}: 同步时间预算已到，已停止继续请求以避免 Vercel 504`);
+  }
+}
+
+function requestTimeoutMs(deadline) {
+  const configured = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 800, 2500, 1800);
+  if (!deadline) return configured;
+  const remaining = Math.max(500, deadline - Date.now() - 500);
+  return Math.min(configured, remaining);
 }
 
 function rangeForSheet(sheetName) {
@@ -406,13 +442,16 @@ function appendQuery(url, params) {
   return parsed.toString();
 }
 
-async function getDingTalkAccessToken() {
+async function getDingTalkAccessToken(deadline) {
   const appKey = requireEnv("DINGTALK_APP_KEY");
   const appSecret = requireEnv("DINGTALK_APP_SECRET");
+  ensureTime(deadline, "获取钉钉 accessToken 失败");
   const json = await requestJson("https://api.dingtalk.com/v1.0/oauth2/accessToken", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ appKey, appSecret })
+    body: JSON.stringify({ appKey, appSecret }),
+    timeoutMs: requestTimeoutMs(deadline),
+    deadline
   }, "获取钉钉 accessToken 失败");
   if (!json.accessToken) throw new Error(`钉钉 token 响应缺少 accessToken: ${JSON.stringify(json)}`);
   return json.accessToken;
@@ -420,8 +459,9 @@ async function getDingTalkAccessToken() {
 
 function requestJson(url, options, label) {
   return new Promise((resolve, reject) => {
-    const timeoutMs = clampInt(process.env.DINGTALK_HTTP_TIMEOUT_MS, 3000, 25000, 9000);
-    const req = https.request(url, options, (res) => {
+    const { timeoutMs: explicitTimeoutMs, deadline, ...requestOptions } = options || {};
+    const timeoutMs = explicitTimeoutMs || requestTimeoutMs(deadline);
+    const req = https.request(url, requestOptions, (res) => {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => { body += chunk; });
@@ -441,7 +481,7 @@ function requestJson(url, options, label) {
     req.setTimeout(timeoutMs, () => {
       req.destroy(new Error(`${label}: 请求超过 ${timeoutMs}ms`));
     });
-    if (options.body) req.write(options.body);
+    if (requestOptions.body) req.write(requestOptions.body);
     req.end();
   });
 }
@@ -482,7 +522,7 @@ function transformWorkbook(sheets) {
   const coachProfileRows = rowsFromMatrix(sheets["教练档案"]);
   const relationRows = rowsFromMatrix(sheets["教练门店关系"]);
   const trialRows = rowsFromMatrix(sheets["体验课流水"]);
-  const renewalRows = rowsFromMatrix(sheets["续课流水"]);
+  const renewalRows = rowsFromMatrix(sheets["正课流水"] || sheets["续课流水"]);
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
   const autoModel = buildAutoOperatingModel({
     meta,
@@ -597,26 +637,31 @@ function transformWorkbook(sheets) {
 
 function buildCityViewRow(r, view, auto, coachRows, districtRows) {
   const cityName = text(r["城市"]);
-  const target = num(r["目标营收_万元"]);
-  const completed = auto?.revenueWan ?? num(r["实际完成_万元"]);
-  const rate = target ? round((completed / target) * 100, 1) : num(r["完成率_%"]);
+  const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"]));
+  const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"]));
+  const monthlyRate = num(firstValue(r, ["月完成率", "月完成率_%", "月度完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
+  const weekGoal = num(firstValue(r, ["周目标_万元", "周目标 万元", "周目标"]), monthlyGoal ? round(monthlyGoal / 4, 2) : 0);
+  const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekRate = num(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
+  const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
     color: CITY_COLORS[cityName] || "#1aa7ff",
-    goal: target,
-    completed,
-    rate,
-    time: num(r["时间进度_%"]),
-    gap: num(r["差距_万元"], round(completed - target, 2)),
+    goal: monthlyGoal,
+    completed: monthlyCompleted,
+    rate: monthlyRate,
+    time: view === "month" ? monthProgressPercent() : num(r["时间进度_%"], view === "day" ? 100 : 100),
+    gap: num(r["差距_万元"], round(monthlyCompleted - monthlyGoal, 2)),
     forecast: num(r["预计月底_万元"]),
-    needed: num(r["还需完成_万元"], Math.max(round(target - completed, 2), 0)),
+    needed: num(r["还需完成_万元"], Math.max(round(monthlyGoal - monthlyCompleted, 2), 0)),
     status: text(r["状态"], "预警"),
-    monthlyGoal: num(r["月度目标_万元"], target),
-    monthlyCompleted: auto?.monthRevenueWan ?? num(r["月度完成_万元"], num(r["实际完成_万元"])),
-    weekGoal: num(r["周目标_万元"], num(r["月度目标_万元"], target) / 4),
-    weekCompleted: auto?.weekRevenueWan ?? num(r["周完成_万元"]),
-    yesterdayCompleted: auto?.yesterdayRevenueWan ?? num(r["昨日完成_万元"]),
+    monthlyGoal,
+    monthlyCompleted,
+    weekGoal,
+    weekCompleted,
+    weekRate,
+    yesterdayCompleted,
     courseUsersTotal: auto?.users ?? num(r["正课总用户数"]),
     courseUsersExpiring: num(r["到期用户数"]),
     courseUsersExpiringMonth: num(r["本月到期用户数"]),
@@ -671,7 +716,7 @@ function fallbackCityRows(view, autoView = {}) {
 function monthProgressPercent() {
   const now = shanghaiDateParts();
   const days = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();
-  return round((now.day / days) * 100, 1);
+  return round((Math.max(now.day - 1, 0) / days) * 100, 1);
 }
 
 function coachSummaryFromRow(coach) {
@@ -710,7 +755,7 @@ function districtSummaryFromRow(district) {
 
 function buildAutoOperatingModel(source) {
   if (!source.stores.length && !source.coaches.length && !source.trials.length && !source.renewals.length) return {};
-  const periods = operatingPeriods(source.meta.period);
+  const periods = operatingPeriods();
   const cities = Array.from(new Set([
     ...source.stores.map((row) => text(row["城市"])),
     ...source.coaches.map((row) => text(row["城市"])),
@@ -876,11 +921,10 @@ function groupRelationsByCoach(rows) {
   return map;
 }
 
-function operatingPeriods(periodText) {
-  const parsedMonth = parseMonthPeriod(periodText);
+function operatingPeriods() {
   const today = shanghaiDateParts();
-  const monthStart = parsedMonth?.start || shanghaiDate(today.year, today.month - 1, 1);
-  const monthEnd = parsedMonth?.end || shanghaiDate(today.year, today.month, 0, 23, 59, 59, 999);
+  const monthStart = shanghaiDate(today.year, today.month - 1, 1);
+  const monthEnd = shanghaiDate(today.year, today.month, 0, 23, 59, 59, 999);
   const todayStart = shanghaiDate(today.year, today.month - 1, today.day);
   const yesterdayStart = shanghaiDate(today.year, today.month - 1, today.day - 1);
   const yesterdayEnd = new Date(yesterdayStart.getTime() + 86400000 - 1);
@@ -893,19 +937,14 @@ function operatingPeriods(periodText) {
   };
 }
 
-function parseMonthPeriod(value) {
-  const match = text(value).match(/(\d{4})年(\d{1,2})月/);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-  return {
-    start: shanghaiDate(year, monthIndex, 1),
-    end: shanghaiDate(year, monthIndex + 1, 0, 23, 59, 59, 999)
-  };
-}
-
-function rowDate(row, key = "日期") {
-  const value = firstValue(row, [
+function dateKeysFor(key) {
+  if (key === "入驻日期") {
+    return ["入驻日期", "入驻时间", "新签日期", "新签时间", "签约日期", "签约时间", "门店入驻日期", "门店入驻时间"];
+  }
+  if (key === "入职日期") {
+    return ["入职日期", "入职时间", "加入日期", "加入时间", "教练入职日期", "教练入职时间"];
+  }
+  return [
     key,
     "日期",
     "下单日期",
@@ -914,12 +953,12 @@ function rowDate(row, key = "日期") {
     "创建日期",
     "创建时间",
     "支付时间",
-    "入驻日期",
-    "入驻时间",
-    "入职日期",
-    "入职时间",
     "时间"
-  ]);
+  ];
+}
+
+function rowDate(row, key = "日期") {
+  const value = firstValue(row, dateKeysFor(key));
   if (value instanceof Date) return value;
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = text(value);
@@ -1010,7 +1049,9 @@ function isStockRow(row) {
 }
 
 function isExplicitMonthNew(row) {
-  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(text(row["新增类型"] || row["新增状态"] || row["数据类型"]));
+  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(text(row["新增类型"] || row["新增状态"] || row["数据类型"])) ||
+    isTruthy(row["本月新增"]) ||
+    isTruthy(row["本月新签"]);
 }
 
 function isTruthy(value) {
@@ -1023,9 +1064,9 @@ function storeItem(row) {
 
 function formulaLogic() {
   return [
-    "本月=日期落在基础配置 period 所在自然月的数据；昨日=当前日期前一天的数据；本周=最近7天。",
+    "本月=系统北京时间当前自然月；昨日=系统北京时间当前日期前一天；本周=最近7天。",
     "教练体验课数=体验课流水.下单数求和；转化数=体验课流水.转化数求和；转化率=转化数/体验课数。",
-    "营收完成=体验课流水.金额+续课流水.金额；续课数=续课流水.续约数求和。",
+    "业绩目标/完成=双城经营Sheet；体验课=体验课流水Sheet；正课/续课=正课流水Sheet。",
     "城区教练/门店=教练档案、门店明细按城市+区域分组；服务门店=教练门店关系按教练ID聚合。"
   ];
 }

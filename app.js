@@ -104,6 +104,7 @@ const fallbackData = {
 };
 
 const AUTO_SYNC_INTERVAL_MS = 30000;
+const REMOTE_DATA_CACHE_KEY = "xiaotieLastGoodDingTalkData";
 const ENTITY_CITY_KEYS = [
   "coachesTotal",
   "coachesNew",
@@ -861,12 +862,34 @@ async function loadRemoteData(manual = false) {
     if (!cockpitData.meta.syncMode) {
       cockpitData.meta.syncMode = "钉钉实时数据";
     }
+    localStorage.setItem(REMOTE_DATA_CACHE_KEY, JSON.stringify(cockpitData));
     render();
   } catch (error) {
+    const cached = readLastGoodRemoteData();
+    if (cached) {
+      cockpitData = cached;
+      cockpitData.meta = cockpitData.meta || {};
+      cockpitData.meta.syncMode = `远程同步失败，已使用上次成功数据：${shortError(error.message)}`;
+      cockpitData.meta.syncWarningCount = 0;
+      render();
+      if (manual) alert(`远程读取失败，已显示上次成功数据：${shortError(error.message, 500)}`);
+      return;
+    }
     cockpitData.meta.syncMode = `同步失败：${shortError(error.message)}`;
     cockpitData.meta.syncWarningCount = 0;
     render();
     if (manual) alert(`读取数据失败：${shortError(error.message, 500)}`);
+  }
+}
+
+function readLastGoodRemoteData() {
+  try {
+    const raw = localStorage.getItem(REMOTE_DATA_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.views ? parsed : null;
+  } catch (error) {
+    return null;
   }
 }
 
@@ -1050,7 +1073,7 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const coachProfileRows = excelRows(sheets["教练档案"]);
   const relationRows = excelRows(sheets["教练门店关系"]);
   const trialRows = excelRows(sheets["体验课流水"]);
-  const renewalRows = excelRows(sheets["续课流水"]);
+  const renewalRows = excelRows(sheets["正课流水"] || sheets["续课流水"]);
   const meta = Object.fromEntries(metaRows.map((r) => [r.key, r.value]));
   const autoModel = excelAutoOperatingModel({
     meta,
@@ -1157,7 +1180,7 @@ function jsonPayloadsToSheets(payloads) {
     "教练档案": matrixFromRows(coachRows, ["教练ID", "城市", "区域", "教练", "教练等级", "在职状态", "入职日期", "新增类型", "昨日新增", "服务门店"]),
     "教练门店关系": matrixFromRows(relationRows, ["教练ID", "教练", "门店ID", "门店名称"]),
     "体验课流水": matrixFromRows(trialRows, ["日期", "订单ID", "城市", "区域", "教练ID", "教练", "门店ID", "门店名称", "课程名称", "下单数", "转化数", "已消课数", "金额", "渠道", "状态"]),
-    "续课流水": matrixFromRows([...renewalRows, ...splitRenewals.map(jsonRenewalFromTrial)], ["日期", "订单ID", "城市", "区域", "教练ID", "教练", "门店ID", "门店名称", "课程名称", "续约数", "金额", "渠道", "状态"]),
+    "正课流水": matrixFromRows([...renewalRows, ...splitRenewals.map(jsonRenewalFromTrial)], ["日期", "订单ID", "城市", "区域", "教练ID", "教练", "门店ID", "门店名称", "课程名称", "续约数", "金额", "渠道", "状态"]),
     "教练经营": [],
     "城区分布": [],
     "转化漏斗": currentFunnelRows(),
@@ -1526,7 +1549,7 @@ function currentMonthPeriodText() {
 function monthProgress() {
   const now = beijingDateParts();
   const days = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();
-  return Math.round((now.day / days) * 1000) / 10;
+  return Math.round((Math.max(now.day - 1, 0) / days) * 1000) / 10;
 }
 
 function dateInCurrentMonthText(value) {
@@ -1547,25 +1570,31 @@ function dateIsYesterdayText(value) {
 
 function excelCityViewRow(r, view, auto, coachRows, districtRows) {
   const cityName = excelText(r["城市"]);
-  const goal = excelNum(r["目标营收_万元"]);
-  const completed = auto?.revenueWan ?? excelNum(r["实际完成_万元"]);
+  const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"]));
+  const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"]));
+  const monthlyRate = excelNum(excelFirst(r, ["月完成率", "月完成率_%", "月度完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
+  const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]), monthlyGoal ? Math.round((monthlyGoal / 4) * 100) / 100 : 0);
+  const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
+  const yesterdayCompleted = excelNum(excelFirst(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
     color: cityName === "深圳" ? "#0066ff" : "#1aa7ff",
-    goal,
-    completed,
-    rate: goal ? percent(completed, goal) : excelNum(r["完成率_%"]),
-    time: excelNum(r["时间进度_%"]),
-    gap: excelNum(r["差距_万元"], completed - goal),
+    goal: monthlyGoal,
+    completed: monthlyCompleted,
+    rate: monthlyRate,
+    time: view === "month" ? monthProgress() : excelNum(r["时间进度_%"], 100),
+    gap: excelNum(r["差距_万元"], monthlyCompleted - monthlyGoal),
     forecast: excelNum(r["预计月底_万元"]),
-    needed: excelNum(r["还需完成_万元"], Math.max(goal - completed, 0)),
+    needed: excelNum(r["还需完成_万元"], Math.max(monthlyGoal - monthlyCompleted, 0)),
     status: excelText(r["状态"], "预警"),
-    monthlyGoal: excelNum(r["月度目标_万元"], goal),
-    monthlyCompleted: auto?.monthRevenueWan ?? excelNum(r["月度完成_万元"], excelNum(r["实际完成_万元"])),
-    weekGoal: excelNum(r["周目标_万元"], goal / 4),
-    weekCompleted: auto?.weekRevenueWan ?? excelNum(r["周完成_万元"]),
-    yesterdayCompleted: auto?.yesterdayRevenueWan ?? excelNum(r["昨日完成_万元"]),
+    monthlyGoal,
+    monthlyCompleted,
+    weekGoal,
+    weekCompleted,
+    weekRate,
+    yesterdayCompleted,
     courseUsersTotal: auto?.users ?? excelNum(r["正课总用户数"]),
     courseUsersExpiring: excelNum(r["到期用户数"]),
     courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),
@@ -1606,7 +1635,7 @@ function excelCityViewRow(r, view, auto, coachRows, districtRows) {
 
 function excelAutoOperatingModel(source) {
   if (!source.stores.length && !source.coaches.length && !source.trials.length && !source.renewals.length) return {};
-  const periods = excelOperatingPeriods(source.meta.period);
+  const periods = excelOperatingPeriods();
   const cities = [...new Set([
     ...source.stores.flatMap(row => excelSplit(row["城市"]).map(normalizeCity)),
     ...source.coaches.flatMap(row => excelSplit(row["城市"]).map(normalizeCity)),
@@ -1759,6 +1788,13 @@ function excelText(value, fallback = "") {
   return String(value).trim() || fallback;
 }
 
+function excelFirst(row, keys) {
+  for (const key of keys) {
+    if (excelText(row[key]) !== "") return row[key];
+  }
+  return "";
+}
+
 function excelFieldIncludes(value, expected) {
   const raw = excelText(value);
   const target = excelText(expected);
@@ -1805,15 +1841,14 @@ function excelAggregateChannel(monthTrials, monthRenewals, yesterdayTrials, yest
   };
 }
 
-function excelOperatingPeriods(periodText) {
-  const parsed = excelParseMonthPeriod(periodText);
+function excelOperatingPeriods() {
   const now = beijingDateParts();
   const today = beijingDate(now.year, now.month - 1, now.day);
   const yesterday = beijingDate(now.year, now.month - 1, now.day - 1);
   const weekStart = new Date(today);
   weekStart.setDate(weekStart.getDate() - 6);
   return {
-    month: parsed || {
+    month: {
       start: beijingDate(now.year, now.month - 1, 1),
       end: beijingDate(now.year, now.month, 0, 23, 59, 59, 999)
     },
@@ -1822,19 +1857,28 @@ function excelOperatingPeriods(periodText) {
   };
 }
 
-function excelParseMonthPeriod(value) {
-  const match = excelText(value).match(/(\d{4})年(\d{1,2})月/);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-  return {
-    start: beijingDate(year, monthIndex, 1),
-    end: beijingDate(year, monthIndex + 1, 0, 23, 59, 59, 999)
-  };
+function excelDateKeysFor(key) {
+  if (key === "入驻日期") {
+    return ["入驻日期", "入驻时间", "新签日期", "新签时间", "签约日期", "签约时间", "门店入驻日期", "门店入驻时间"];
+  }
+  if (key === "入职日期") {
+    return ["入职日期", "入职时间", "加入日期", "加入时间", "教练入职日期", "教练入职时间"];
+  }
+  return [
+    key,
+    "日期",
+    "下单日期",
+    "成交日期",
+    "支付日期",
+    "创建日期",
+    "创建时间",
+    "支付时间",
+    "时间"
+  ];
 }
 
 function excelRowDate(row, key = "日期") {
-  const value = row[key];
+  const value = excelFirst(row, excelDateKeysFor(key));
   if (value instanceof Date) return value;
   if (typeof value === "number") return new Date(Math.round((value - 25569) * 86400 * 1000));
   const raw = excelText(value);
@@ -1896,7 +1940,9 @@ function excelStockRow(row) {
 }
 
 function excelExplicitMonthNew(row) {
-  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(excelText(row["新增类型"] || row["新增状态"] || row["数据类型"]));
+  return /本月新增|本月新签|月度新增|月度新签|新签|新增/.test(excelText(row["新增类型"] || row["新增状态"] || row["数据类型"])) ||
+    excelTruthy(row["本月新增"]) ||
+    excelTruthy(row["本月新签"]);
 }
 
 function excelStoreItem(row) {
@@ -1909,9 +1955,9 @@ function excelSameCoach(row, coachId, coachName) {
 
 function excelFormulaLogic() {
   return [
-    "本月=日期落在基础配置 period 所在自然月的数据；昨日=当前日期前一天的数据；本周=最近7天。",
+    "本月=系统北京时间当前自然月；昨日=系统北京时间当前日期前一天；本周=最近7天。",
     "教练体验课数=体验课流水.下单数求和；转化数=体验课流水.转化数求和；转化率=转化数/体验课数。",
-    "营收完成=体验课流水.金额+续课流水.金额；续课数=续课流水.续约数求和。",
+    "业绩目标/完成=双城经营Sheet；体验课=体验课流水Sheet；正课/续课=正课流水Sheet。",
     "城区教练/门店=教练档案、门店明细按城市+区域分组；服务门店=教练门店关系按教练ID聚合。"
   ];
 }
