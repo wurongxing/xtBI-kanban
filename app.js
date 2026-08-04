@@ -348,21 +348,14 @@ function renderHeadquartersOkr(view) {
     </article>
   `;
 
-  els.detailGrid.className = "detail-grid hq-okr-detail-grid";
+  els.detailGrid.className = "detail-grid hq-people-only-grid";
   els.detailGrid.innerHTML = `
-    <article class="panel hq-kr-overview">
-      <div class="panel-head">
-        <h2>运营中心KR项</h2>
-        <span>模块目标</span>
-      </div>
-      <div class="okr-cards">${cockpitData.departments.map(okrCard).join("")}</div>
-    </article>
     <article class="panel hq-people-okr">
       <div class="panel-head">
         <h2>角色个人OKR</h2>
-        <span>一人一个O，多KR周动作</span>
+        <span>按模块分列 · 负责人优先</span>
       </div>
-      <div class="okr-cards people-okr-cards">${(cockpitData.people || []).map(okrCard).join("")}</div>
+      ${peopleOkrColumns(cockpitData.people || [])}
     </article>
   `;
 }
@@ -715,19 +708,25 @@ function chinaExpansionMap() {
   const cities = Array.isArray(cockpitData.cityExpansion) && cockpitData.cityExpansion.length
     ? cockpitData.cityExpansion
     : [
-      { name: "深圳", province: "广东", coaches: 102, stores: 462, x: 73, y: 78, status: "已开拓" },
-      { name: "广州", province: "广东", coaches: 47, stores: 212, x: 68, y: 75, status: "已开拓" }
+      { name: "深圳", province: "广东", coaches: 102, stores: 462, lon: 114.06, lat: 22.55, status: "已开拓" },
+      { name: "广州", province: "广东", coaches: 47, stores: 212, lon: 113.26, lat: 23.13, status: "已开拓" }
     ];
   return `
     <section class="china-map">
       <div class="china-map-canvas">
-        <svg viewBox="0 0 520 360" aria-hidden="true">
-          <path d="M138 84 L214 54 L303 66 L384 104 L430 176 L404 246 L338 292 L248 308 L158 270 L96 206 L82 130 Z" />
-          <path d="M248 308 L274 338 L226 334 Z" />
-          <path d="M404 246 L454 270 L420 288 Z" />
+        <svg viewBox="0 0 640 500" aria-hidden="true">
+          <path class="china-mainland" d="M84 184 L112 138 L165 105 L222 82 L270 93 L321 69 L383 84 L438 112 L486 150 L542 184 L586 235 L570 281 L528 308 L500 350 L455 388 L397 405 L345 392 L292 416 L233 398 L194 358 L146 331 L113 286 L67 249 L71 211 Z" />
+          <path class="china-mainland-detail" d="M160 106 L184 144 L225 154 L256 134 M292 96 L304 148 L351 165 L392 136 M438 112 L424 168 L470 194 L540 184 M146 331 L204 300 L260 314 L292 416 M345 392 L356 340 L418 326 L455 388 M397 405 L422 448" />
+          <path class="china-island" d="M334 436 C352 426 374 432 384 448 C369 465 343 465 329 450 Z" />
+          <path class="china-island" d="M500 372 C526 387 530 426 506 456 C483 431 480 395 500 372 Z" />
+          <circle class="china-dot-island" cx="442" cy="452" r="3" />
+          <circle class="china-dot-island" cx="462" cy="468" r="2.5" />
+          <circle class="china-dot-island" cx="480" cy="484" r="2.5" />
         </svg>
-        ${cities.map((city) => `
-          <div class="city-pin" style="--x:${city.x}; --y:${city.y};">
+        ${cities.map((city) => {
+          const point = mapPoint(city);
+          return `
+          <div class="city-pin" style="--x:${point.x}; --y:${point.y};">
             <i></i>
             <section>
               <strong>${city.name}</strong>
@@ -735,7 +734,8 @@ function chinaExpansionMap() {
               <b>${count(city.coaches)}教练 / ${count(city.stores)}门店</b>
             </section>
           </div>
-        `).join("")}
+        `;
+        }).join("")}
       </div>
       <div class="city-expansion-list">
         ${cities.map((city) => `
@@ -744,6 +744,40 @@ function chinaExpansionMap() {
       </div>
     </section>
   `;
+}
+
+function mapPoint(city) {
+  if (Number.isFinite(Number(city.x)) && Number.isFinite(Number(city.y))) {
+    return { x: Number(city.x), y: Number(city.y) };
+  }
+  const lon = Number(city.lon);
+  const lat = Number(city.lat);
+  if (Number.isFinite(lon) && Number.isFinite(lat)) return projectChinaLonLat(lon, lat);
+  return projectChinaLonLat(...defaultCityLonLat(city.name));
+}
+
+function projectChinaLonLat(lon, lat) {
+  const x = ((lon - 73.5) / (135.2 - 73.5)) * 100;
+  const y = ((54.2 - lat) / (54.2 - 18.0)) * 100;
+  return {
+    x: Math.min(92, Math.max(6, Math.round(x * 10) / 10)),
+    y: Math.min(92, Math.max(8, Math.round(y * 10) / 10))
+  };
+}
+
+function defaultCityLonLat(name) {
+  const city = {
+    "深圳": [114.06, 22.55],
+    "广州": [113.26, 23.13],
+    "上海": [121.47, 31.23],
+    "北京": [116.41, 39.90],
+    "成都": [104.07, 30.67],
+    "杭州": [120.16, 30.25],
+    "武汉": [114.31, 30.52],
+    "西安": [108.94, 34.34],
+    "重庆": [106.55, 29.56]
+  }[name];
+  return city || [105.0, 35.0];
 }
 
 function normalizeCoach(coach) {
@@ -870,6 +904,62 @@ function okrCard(item) {
   `;
 }
 
+function peopleOkrColumns(items) {
+  const source = Array.isArray(items) && items.length ? items : fallbackData.people || [];
+  const modules = [...new Set(source.map((item) => item.department || item.name || "未分模块"))];
+  return `
+    <div class="people-okr-columns" style="--module-count:${Math.max(modules.length, 1)}">
+      ${modules.map((moduleName) => {
+        const people = source
+          .filter((item) => (item.department || item.name || "未分模块") === moduleName)
+          .sort(personRoleSort);
+        return `
+          <section class="people-okr-module">
+            <div class="people-okr-module-head">
+              <strong>${moduleName}</strong>
+              <span>${people.length}人</span>
+            </div>
+            <div class="people-okr-module-list">
+              ${people.map(personOkrCard).join("")}
+            </div>
+          </section>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function personRoleSort(a, b) {
+  const ar = roleRank(a.role || a.owner);
+  const br = roleRank(b.role || b.owner);
+  if (ar !== br) return ar - br;
+  return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
+}
+
+function roleRank(role = "") {
+  if (/负责人|负责|主管|总监|经理/.test(role)) return 0;
+  return 1;
+}
+
+function personOkrCard(item) {
+  const role = item.role || item.owner || "角色待填";
+  return `
+    <section class="okr-card person-okr-card" style="--okr-accent:${accentFor(item.department || item.name)}">
+      <div class="okr-card-head">
+        <div>
+          <h3>${item.name}</h3>
+          <span class="okr-owner">${role}</span>
+        </div>
+        <strong class="${item.rate < 35 ? "bad" : item.rate < 55 ? "warn" : "good"}">${item.rate}%</strong>
+      </div>
+      <p class="okr-objective">O：${item.objective || item.title || "待补充"}</p>
+      <ul class="okr-kr-list">
+        ${(Array.isArray(item.krs) ? item.krs : []).map((kr, index) => okrKrItem(kr, index)).join("")}
+      </ul>
+    </section>
+  `;
+}
+
 function okrKrItem(kr, index) {
   if (typeof kr === "string") {
     return `<li><b>KR${index + 1}</b><span>${kr}</span></li>`;
@@ -889,8 +979,6 @@ function okrKrItem(kr, index) {
 }
 
 function projectProgressCard(item) {
-  const valueLabel = item.unit ? `${item.target}${item.unit}` : item.target;
-  const doneLabel = item.unit ? `${item.done}${item.unit}` : item.done;
   const krs = Array.isArray(item.krs) ? item.krs : [];
   return `
     <section class="okr-card project-progress-card" style="--okr-accent:${accentFor(item.name)}">
@@ -901,11 +989,6 @@ function projectProgressCard(item) {
         </div>
         <strong class="${item.rate < 35 ? "bad" : item.rate < 55 ? "warn" : "good"}">${item.rate}%</strong>
       </div>
-      <div class="okr-values">
-        <div><span>目标</span><b>${valueLabel}</b></div>
-        <div><span>完成</span><b>${doneLabel}</b></div>
-      </div>
-      <div class="okr-progress" style="--value:${item.rate}"><i></i></div>
       <p class="okr-objective">O：${item.objective}</p>
       <ul class="okr-kr-list">${krs.map((kr, index) => okrKrItem(kr, index)).join("")}</ul>
       <p class="okr-action">下一步：${item.action || "待补充"}</p>
@@ -1230,7 +1313,7 @@ function excelGroupOkrRows(rows, type) {
   rows.forEach((row, index) => {
     const item = type === "project" ? excelProjectRow(row) : excelSimpleOkrRow(row);
     const role = excelText(excelFirst(row, ["角色", "岗位", "职务"]));
-    const person = excelText(excelFirst(row, ["负责人", "姓名", "owner"]));
+    const person = excelText(excelFirst(row, ["人员", "负责人", "姓名", "owner"]));
     const groupName = type === "project" ? item.name : type === "person" ? (person || item.owner || "未指定") : (item.name || item.owner || "运营中心");
     const key = `${groupName}__${item.owner}__${item.objective}`;
     if (!groups.has(key)) {
@@ -1299,22 +1382,19 @@ function excelFunnelRow(row) {
 
 function excelCityExpansionRow(row) {
   const name = excelText(excelFirst(row, ["城市", "开拓城市", "名称"]));
-  const defaults = {
-    "深圳": { x: 73, y: 78 },
-    "广州": { x: 68, y: 75 },
-    "上海": { x: 78, y: 52 },
-    "北京": { x: 65, y: 31 },
-    "成都": { x: 49, y: 58 },
-    "杭州": { x: 76, y: 55 }
-  };
-  const fallback = defaults[name] || { x: 60, y: 58 };
+  const [defaultLon, defaultLat] = defaultCityLonLat(name);
+  const lon = excelNum(excelFirst(row, ["经度", "lon", "lng", "longitude"]), defaultLon);
+  const lat = excelNum(excelFirst(row, ["纬度", "lat", "latitude"]), defaultLat);
+  const projected = projectChinaLonLat(lon, lat);
   return {
     name,
     province: excelText(excelFirst(row, ["省份", "省"])),
     coaches: excelNum(excelFirst(row, ["教练数", "教练人数"])),
     stores: excelNum(excelFirst(row, ["门店数", "入驻门店数"])),
-    x: excelNum(excelFirst(row, ["地图X", "X", "x"]), fallback.x),
-    y: excelNum(excelFirst(row, ["地图Y", "Y", "y"]), fallback.y),
+    lon,
+    lat,
+    x: excelNum(excelFirst(row, ["地图X", "X", "x"]), projected.x),
+    y: excelNum(excelFirst(row, ["地图Y", "Y", "y"]), projected.y),
     status: excelText(excelFirst(row, ["状态", "开拓状态"]), "已开拓")
   };
 }
@@ -1663,12 +1743,14 @@ function currentFunnelRows() {
 }
 
 function currentCityExpansionRows() {
-  const headers = ["城市", "省份", "教练数", "门店数", "地图X", "地图Y", "状态"];
+  const headers = ["城市", "省份", "教练数", "门店数", "经度", "纬度", "地图X", "地图Y", "状态"];
   const rows = (cockpitData?.cityExpansion || []).map((item) => ({
     "城市": item.name,
     "省份": item.province,
     "教练数": item.coaches,
     "门店数": item.stores,
+    "经度": item.lon,
+    "纬度": item.lat,
     "地图X": item.x,
     "地图Y": item.y,
     "状态": item.status

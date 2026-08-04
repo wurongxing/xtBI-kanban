@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-six-sheet-hq-map-v11";
+const API_VERSION = "2026-08-05-project-okr-clean-v14";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -590,7 +590,7 @@ function groupOkrRows(rows, type) {
   rows.forEach((row, index) => {
     const item = type === "project" ? projectFromRow(row) : okrFromRow(row);
     const role = text(firstValue(row, ["角色", "岗位", "职务"]));
-    const person = text(firstValue(row, ["负责人", "姓名", "owner"]));
+    const person = text(firstValue(row, ["人员", "负责人", "姓名", "owner"]));
     const groupName = type === "project" ? item.name : type === "person" ? (person || item.owner || "未指定") : (item.name || item.owner || "运营中心");
     const key = `${groupName}__${item.owner}__${item.objective}`;
     if (!groups.has(key)) {
@@ -659,24 +659,44 @@ function funnelFromRow(row) {
 
 function cityExpansionFromRow(row) {
   const name = text(firstValue(row, ["城市", "开拓城市", "名称"]));
-  const defaults = {
-    深圳: { x: 73, y: 78 },
-    广州: { x: 68, y: 75 },
-    上海: { x: 78, y: 52 },
-    北京: { x: 65, y: 31 },
-    成都: { x: 49, y: 58 },
-    杭州: { x: 76, y: 55 }
-  };
-  const fallback = defaults[name] || { x: 60, y: 58 };
+  const [defaultLon, defaultLat] = defaultCityLonLat(name);
+  const lon = num(firstValue(row, ["经度", "lon", "lng", "longitude"]), defaultLon);
+  const lat = num(firstValue(row, ["纬度", "lat", "latitude"]), defaultLat);
+  const projected = projectChinaLonLat(lon, lat);
   return {
     name,
     province: text(firstValue(row, ["省份", "省"])),
     coaches: num(firstValue(row, ["教练数", "教练人数"])),
     stores: num(firstValue(row, ["门店数", "入驻门店数"])),
-    x: num(firstValue(row, ["地图X", "X", "x"]), fallback.x),
-    y: num(firstValue(row, ["地图Y", "Y", "y"]), fallback.y),
+    lon,
+    lat,
+    x: num(firstValue(row, ["地图X", "X", "x"]), projected.x),
+    y: num(firstValue(row, ["地图Y", "Y", "y"]), projected.y),
     status: text(firstValue(row, ["状态", "开拓状态"]), "已开拓")
   };
+}
+
+function projectChinaLonLat(lon, lat) {
+  const x = ((lon - 73.5) / (135.2 - 73.5)) * 100;
+  const y = ((54.2 - lat) / (54.2 - 18.0)) * 100;
+  return {
+    x: Math.min(92, Math.max(6, round(x, 1))),
+    y: Math.min(92, Math.max(8, round(y, 1)))
+  };
+}
+
+function defaultCityLonLat(name) {
+  return {
+    深圳: [114.06, 22.55],
+    广州: [113.26, 23.13],
+    上海: [121.47, 31.23],
+    北京: [116.41, 39.90],
+    成都: [104.07, 30.67],
+    杭州: [120.16, 30.25],
+    武汉: [114.31, 30.52],
+    西安: [108.94, 34.34],
+    重庆: [106.55, 29.56]
+  }[name] || [105.0, 35.0];
 }
 
 function isCitySummaryRow(r) {
