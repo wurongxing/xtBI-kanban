@@ -465,7 +465,71 @@ function renderCity(city, selector) {
       ${metric("周完成率", `${weeklyRate(city)}%`, weeklyRate(city) < 35 ? "warn" : "good")}
       ${metric("昨日完成", money(yesterdayCompleted))}
     </div>
+    ${districtOperatingTable(city.districtMetrics || [])}
   `;
+}
+
+function districtOperatingTable(rows) {
+  if (!rows.length) {
+    return `<div class="district-empty">等待经营数据表补充各区月度经营数据</div>`;
+  }
+  return `
+    <div class="district-operating">
+      <div class="district-operating-head">
+        <strong>各区月度经营数据</strong>
+        <span>体验课 / 正课续课 / 教练门店新增</span>
+      </div>
+      <div class="district-table-wrap">
+        <table class="district-table">
+          <thead>
+            <tr>
+              <th>区域</th>
+              <th>月体验课</th>
+              <th>月转正课</th>
+              <th>月转化率</th>
+              <th>昨日体验课</th>
+              <th>昨日转正课</th>
+              <th>昨日转化率</th>
+              <th>正课到期</th>
+              <th>续课</th>
+              <th>续课率</th>
+              <th>月新增教练</th>
+              <th>昨新增教练</th>
+              <th>月新增门店</th>
+              <th>昨新增门店</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td><strong>${row.name}</strong></td>
+                <td>${count(row.monthTrials)}</td>
+                <td>${count(row.monthDeals)}</td>
+                <td class="${rateClass(row.monthConversionRate)}">${row.monthConversionRate}%</td>
+                <td>${count(row.yesterdayTrials)}</td>
+                <td>${count(row.yesterdayDeals)}</td>
+                <td class="${rateClass(row.yesterdayConversionRate)}">${row.yesterdayConversionRate}%</td>
+                <td>${count(row.expiringLessons)}</td>
+                <td>${count(row.renewals)}</td>
+                <td class="${rateClass(row.renewalRate)}">${row.renewalRate}%</td>
+                <td>${count(row.coachesNewMonth)}</td>
+                <td>${count(row.coachesNewYesterday)}</td>
+                <td>${count(row.storesNewMonth)}</td>
+                <td>${count(row.storesNewYesterday)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function rateClass(value) {
+  const rate = Number(value || 0);
+  if (rate >= 35) return "good";
+  if (rate >= 15) return "warn";
+  return "bad";
 }
 
 function enrichCityCenter(city) {
@@ -1033,9 +1097,11 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
   const meta = Object.fromEntries(metaRows.map((r) => [excelText(r.key || r["配置项"]), excelText(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !excelText(r.period_type) || excelText(r.period_type, "month") === "month");
+  const citySummaryRows = monthlyRows.filter(excelIsCitySummaryRow);
+  const districtRows = monthlyRows.filter(excelIsDistrictMetricRow);
 
   for (const view of ["month", "week", "day"]) {
-    const cities = monthlyRows.map(excelMonthlyCityRow);
+    const cities = citySummaryRows.map((row) => excelMonthlyCityRow(row, districtRows));
     const companyKr = okrRows.map(excelSimpleOkrRow);
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
     const completed = cities.reduce((sum, city) => sum + city.completed, 0);
@@ -1106,7 +1172,17 @@ function excelProjectRow(r) {
   };
 }
 
-function excelMonthlyCityRow(r) {
+function excelIsCitySummaryRow(r) {
+  const level = excelText(excelFirst(r, ["数据层级", "层级", "类型"]));
+  return !excelIsDistrictMetricRow(r) || level === "城市";
+}
+
+function excelIsDistrictMetricRow(r) {
+  const level = excelText(excelFirst(r, ["数据层级", "层级", "类型"]));
+  return level === "区域" || Boolean(excelText(excelFirst(r, ["区域", "城区", "区"])));
+}
+
+function excelMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = excelText(r["城市"]);
   const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
   const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
@@ -1114,6 +1190,10 @@ function excelMonthlyCityRow(r) {
   const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]));
   const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
   const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
+  const districtMetrics = allDistrictRows
+    .filter((row) => normalizeCity(excelText(row["城市"])) === normalizeCity(cityName))
+    .map(excelDistrictMetricFromRow)
+    .filter((item) => item.name);
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -1129,8 +1209,34 @@ function excelMonthlyCityRow(r) {
     weekCompleted,
     weekRate,
     yesterdayCompleted: excelNum(excelFirst(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"])),
+    districtMetrics,
     gap: Math.round((monthlyCompleted - monthlyGoal) * 100) / 100,
     needed: Math.max(Math.round((monthlyGoal - monthlyCompleted) * 100) / 100, 0)
+  };
+}
+
+function excelDistrictMetricFromRow(r) {
+  const monthTrials = excelNum(excelFirst(r, ["月度体验课", "月度体验课数", "本月体验课"]));
+  const monthDeals = excelNum(excelFirst(r, ["月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
+  const yesterdayTrials = excelNum(excelFirst(r, ["昨日体验课", "昨日体验课数"]));
+  const yesterdayDeals = excelNum(excelFirst(r, ["昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
+  const expiringLessons = excelNum(excelFirst(r, ["正课到期数", "到期正课数", "到期用户数"]));
+  const renewals = excelNum(excelFirst(r, ["续课数", "续约数"]));
+  return {
+    name: excelText(excelFirst(r, ["区域", "城区", "区"])),
+    monthTrials,
+    monthDeals,
+    monthConversionRate: excelNum(excelFirst(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? percent(monthDeals, monthTrials) : 0),
+    yesterdayTrials,
+    yesterdayDeals,
+    yesterdayConversionRate: excelNum(excelFirst(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? percent(yesterdayDeals, yesterdayTrials) : 0),
+    expiringLessons,
+    renewals,
+    renewalRate: excelNum(excelFirst(r, ["续课率", "续约率"]), expiringLessons ? percent(renewals, expiringLessons) : 0),
+    coachesNewMonth: excelNum(excelFirst(r, ["月度新增教练数", "本月新增教练数"])),
+    coachesNewYesterday: excelNum(excelFirst(r, ["昨日新增教练数"])),
+    storesNewMonth: excelNum(excelFirst(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
+    storesNewYesterday: excelNum(excelFirst(r, ["昨日新增门店数", "昨日新签门店数"]))
   };
 }
 

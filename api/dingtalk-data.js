@@ -477,9 +477,11 @@ function transformWorkbook(sheets) {
   const meta = Object.fromEntries(metaRows.map((r) => [text(r.key || r["配置项"]), text(r.value || r["内容"])]));
   const views = {};
   const monthlyRows = cityRows.filter((r) => !text(r.period_type) || text(r.period_type, "month") === "month");
+  const citySummaryRows = monthlyRows.filter(isCitySummaryRow);
+  const districtRows = monthlyRows.filter(isDistrictMetricRow);
 
   for (const view of ["month", "week", "day"]) {
-    const cities = monthlyRows.map((r) => buildMonthlyCityRow(r));
+    const cities = citySummaryRows.map((r) => buildMonthlyCityRow(r, districtRows));
     const companyKr = okrRows.map(okrFromRow);
 
     const goal = cities.reduce((sum, city) => sum + city.goal, 0);
@@ -571,7 +573,17 @@ function projectFromRow(r) {
   };
 }
 
-function buildMonthlyCityRow(r) {
+function isCitySummaryRow(r) {
+  const level = text(firstValue(r, ["数据层级", "层级", "类型"]));
+  return !isDistrictMetricRow(r) || level === "城市";
+}
+
+function isDistrictMetricRow(r) {
+  const level = text(firstValue(r, ["数据层级", "层级", "类型"]));
+  return level === "区域" || Boolean(text(firstValue(r, ["区域", "城区", "区"])));
+}
+
+function buildMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = text(r["城市"]);
   const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
   const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
@@ -580,6 +592,10 @@ function buildMonthlyCityRow(r) {
   const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
   const weekRate = num(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
   const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
+  const districtMetrics = allDistrictRows
+    .filter((row) => normalizeCity(text(row["城市"])) === normalizeCity(cityName))
+    .map(districtMetricFromRow)
+    .filter((item) => item.name);
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -595,8 +611,34 @@ function buildMonthlyCityRow(r) {
     weekCompleted,
     weekRate,
     yesterdayCompleted,
+    districtMetrics,
     gap: round(monthlyCompleted - monthlyGoal, 2),
     needed: Math.max(round(monthlyGoal - monthlyCompleted, 2), 0)
+  };
+}
+
+function districtMetricFromRow(r) {
+  const monthTrials = num(firstValue(r, ["月度体验课", "月度体验课数", "本月体验课"]));
+  const monthDeals = num(firstValue(r, ["月度体验课转化正课", "月度成交数", "本月成交数", "月度转化正课"]));
+  const yesterdayTrials = num(firstValue(r, ["昨日体验课", "昨日体验课数"]));
+  const yesterdayDeals = num(firstValue(r, ["昨日体验课转化正课", "昨日成交数", "昨日转化正课"]));
+  const expiringLessons = num(firstValue(r, ["正课到期数", "到期正课数", "到期用户数"]));
+  const renewals = num(firstValue(r, ["续课数", "续约数"]));
+  return {
+    name: text(firstValue(r, ["区域", "城区", "区"])),
+    monthTrials,
+    monthDeals,
+    monthConversionRate: num(firstValue(r, ["月度体验课转化率", "月度转化率", "本月转化率"]), monthTrials ? round((monthDeals / monthTrials) * 100, 1) : 0),
+    yesterdayTrials,
+    yesterdayDeals,
+    yesterdayConversionRate: num(firstValue(r, ["昨日体验课转化率", "昨日转化率"]), yesterdayTrials ? round((yesterdayDeals / yesterdayTrials) * 100, 1) : 0),
+    expiringLessons,
+    renewals,
+    renewalRate: num(firstValue(r, ["续课率", "续约率"]), expiringLessons ? round((renewals / expiringLessons) * 100, 1) : 0),
+    coachesNewMonth: num(firstValue(r, ["月度新增教练数", "本月新增教练数"])),
+    coachesNewYesterday: num(firstValue(r, ["昨日新增教练数"])),
+    storesNewMonth: num(firstValue(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
+    storesNewYesterday: num(firstValue(r, ["昨日新增门店数", "昨日新签门店数"]))
   };
 }
 
@@ -1176,6 +1218,13 @@ function requireEnv(name) {
 function text(value, fallback = "") {
   if (value == null) return fallback;
   return String(value).trim() || fallback;
+}
+
+function normalizeCity(value) {
+  const raw = text(value);
+  if (/深圳/.test(raw)) return "深圳";
+  if (/广州/.test(raw)) return "广州";
+  return raw;
 }
 
 function num(value, fallback = 0) {

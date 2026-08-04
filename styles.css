@@ -318,7 +318,7 @@ button {
 .bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: inherit; background: var(--bar-color, var(--blue)); width: calc(var(--value) * 1%); }
 
-.city-card { min-height: 300px; padding: 16px; }
+.city-card { min-height: 520px; padding: 16px; }
 .city-card h2 { margin: 0 0 18px; font-size: 25px; color: var(--city-color); }
 .performance-strip {
   display: grid;
@@ -338,6 +338,76 @@ button {
 .empty-note {
   color: var(--muted);
   margin: 20px 0 0;
+}
+.district-empty {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px dashed rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.18);
+}
+.district-operating {
+  margin-top: 16px;
+}
+.district-operating-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.district-operating-head strong {
+  color: var(--city-color);
+  font-size: 18px;
+}
+.district-operating-head span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.district-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid rgba(30, 115, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(1, 10, 28, 0.62);
+}
+.district-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.district-table th,
+.district-table td {
+  min-width: 76px;
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: right;
+  white-space: nowrap;
+}
+.district-table th:first-child,
+.district-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 92px;
+  text-align: left;
+  background: #061735;
+}
+.district-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: var(--muted);
+  background: #061735;
+}
+.district-table th:first-child {
+  z-index: 3;
+}
+.district-table tbody tr:hover td {
+  background: rgba(0, 71, 255, 0.12);
 }
 .city-map-head {
   display: flex;
