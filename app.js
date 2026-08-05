@@ -448,14 +448,14 @@ function renderCity(city, selector) {
       ${metric("周完成率", `${weeklyRate(city)}%`, weeklyRate(city) < 35 ? "warn" : "good")}
       ${metric("昨日完成", cityMoney(yesterdayCompleted))}
     </div>
-    ${districtOperatingSummary(city.districtMetrics || [])}
+    ${districtOperatingSummary(city.districtMetrics || [], city.districtSummary)}
     ${districtOperatingTable(city.districtMetrics || [])}
   `;
 }
 
-function districtOperatingSummary(rows) {
-  if (!rows.length) return "";
-  const summary = {
+function districtOperatingSummary(rows, citySummary) {
+  if (!rows.length && !citySummary) return "";
+  const summary = rows.length ? {
     monthTrials: sumRows(rows, "monthTrials"),
     monthDeals: sumRows(rows, "monthDeals"),
     yesterdayTrials: sumRows(rows, "yesterdayTrials"),
@@ -466,7 +466,7 @@ function districtOperatingSummary(rows) {
     coachesNewYesterday: sumRows(rows, "coachesNewYesterday"),
     storesNewMonth: sumRows(rows, "storesNewMonth"),
     storesNewYesterday: sumRows(rows, "storesNewYesterday")
-  };
+  } : citySummary;
   const monthConversionRate = percent(summary.monthDeals, summary.monthTrials);
   const yesterdayConversionRate = percent(summary.yesterdayDeals, summary.yesterdayTrials);
   const renewalRate = percent(summary.renewals, summary.expiringLessons);
@@ -1476,11 +1476,11 @@ function excelIsDistrictMetricRow(r) {
 
 function excelMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = excelText(r["城市"]);
-  const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
-  const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
+  const monthlyGoal = excelAmountWan(r, ["月度目标_万元", "月度目标 万元", "月度目标"], ["月度目标_元", "月度目标 元"]);
+  const monthlyCompleted = excelAmountWan(r, ["月度完成_万元", "月度完成 万元", "月度完成"], ["月度完成_元", "月度完成 元"]);
   const rate = excelRateNum(excelFirst(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
-  const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]));
-  const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekGoal = excelAmountWan(r, ["周目标_万元", "周目标 万元", "周目标"], ["周目标_元", "周目标 元"]);
+  const weekCompleted = excelAmountWan(r, ["周完成_万元", "周完成 万元", "周完成"], ["周完成_元", "周完成 元"]);
   const weekRate = excelRateNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
   const districtMetrics = allDistrictRows
     .filter((row) => normalizeCity(excelText(row["城市"])) === normalizeCity(cityName))
@@ -1500,8 +1500,9 @@ function excelMonthlyCityRow(r, allDistrictRows = []) {
     weekGoal,
     weekCompleted,
     weekRate,
-    yesterdayCompleted: excelNum(excelFirst(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"])),
+    yesterdayCompleted: excelAmountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]),
     districtMetrics,
+    districtSummary: excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` }),
     gap: Math.round((monthlyCompleted - monthlyGoal) * 100) / 100,
     needed: Math.max(Math.round((monthlyGoal - monthlyCompleted) * 100) / 100, 0)
   };
@@ -1980,13 +1981,13 @@ function dateIsYesterdayText(value) {
 
 function excelCityViewRow(r, view, auto, coachRows, districtRows) {
   const cityName = excelText(r["城市"]);
-  const monthlyGoal = excelNum(excelFirst(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"]));
-  const monthlyCompleted = excelNum(excelFirst(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"]));
+  const monthlyGoal = excelAmountWan(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"], ["月度目标_元", "月度目标 元", "目标营收_元"]);
+  const monthlyCompleted = excelAmountWan(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"], ["月度完成_元", "月度完成 元", "实际完成_元"]);
   const monthlyRate = excelNum(excelFirst(r, ["月完成率", "月完成率_%", "月度完成率", "完成率_%"]), monthlyGoal ? percent(monthlyCompleted, monthlyGoal) : 0);
-  const weekGoal = excelNum(excelFirst(r, ["周目标_万元", "周目标 万元", "周目标"]), monthlyGoal ? Math.round((monthlyGoal / 4) * 100) / 100 : 0);
-  const weekCompleted = excelNum(excelFirst(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekGoal = excelAmountWan(r, ["周目标_万元", "周目标 万元", "周目标"], ["周目标_元", "周目标 元"], monthlyGoal ? Math.round((monthlyGoal / 4) * 100) / 100 : 0);
+  const weekCompleted = excelAmountWan(r, ["周完成_万元", "周完成 万元", "周完成"], ["周完成_元", "周完成 元"]);
   const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
-  const yesterdayCompleted = excelNum(excelFirst(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
+  const yesterdayCompleted = excelAmountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]);
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -2005,6 +2006,7 @@ function excelCityViewRow(r, view, auto, coachRows, districtRows) {
     weekCompleted,
     weekRate,
     yesterdayCompleted,
+    districtSummary: excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` }),
     courseUsersTotal: auto?.users ?? excelNum(r["正课总用户数"]),
     courseUsersExpiring: excelNum(r["到期用户数"]),
     courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),
@@ -2216,6 +2218,14 @@ function excelNum(value, fallback = 0) {
   if (value == null || value === "") return fallback;
   const numeric = Number(String(value).replace(/,/g, "").replace("%", ""));
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function excelAmountWan(row, wanKeys, yuanKeys, fallback = 0) {
+  const wanValue = excelFirst(row, wanKeys);
+  if (excelText(wanValue) !== "") return excelNum(wanValue, fallback);
+  const yuanValue = excelFirst(row, yuanKeys);
+  if (excelText(yuanValue) !== "") return Math.round((excelNum(yuanValue) / 10000) * 100) / 100;
+  return fallback;
 }
 
 function excelRateNum(value, fallback = 0) {

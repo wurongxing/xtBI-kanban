@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-city-district-summary-v16";
+const API_VERSION = "2026-08-05-city-source-yuan-fields-v17";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -711,17 +711,18 @@ function isDistrictMetricRow(r) {
 
 function buildMonthlyCityRow(r, allDistrictRows = []) {
   const cityName = text(r["城市"]);
-  const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标"]));
-  const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成"]));
+  const monthlyGoal = amountWan(r, ["月度目标_万元", "月度目标 万元", "月度目标"], ["月度目标_元", "月度目标 元"]);
+  const monthlyCompleted = amountWan(r, ["月度完成_万元", "月度完成 万元", "月度完成"], ["月度完成_元", "月度完成 元"]);
   const rate = rateNum(firstValue(r, ["月完成率", "月完成率_%", "完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
-  const weekGoal = num(firstValue(r, ["周目标_万元", "周目标 万元", "周目标"]));
-  const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekGoal = amountWan(r, ["周目标_万元", "周目标 万元", "周目标"], ["周目标_元", "周目标 元"]);
+  const weekCompleted = amountWan(r, ["周完成_万元", "周完成 万元", "周完成"], ["周完成_元", "周完成 元"]);
   const weekRate = rateNum(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
-  const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
+  const yesterdayCompleted = amountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]);
   const districtMetrics = allDistrictRows
     .filter((row) => normalizeCity(text(row["城市"])) === normalizeCity(cityName))
     .map(districtMetricFromRow)
     .filter((item) => item.name);
+  const districtSummary = districtMetricFromRow({ ...r, 区域: `${cityName}汇总` });
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -738,6 +739,7 @@ function buildMonthlyCityRow(r, allDistrictRows = []) {
     weekRate,
     yesterdayCompleted,
     districtMetrics,
+    districtSummary,
     gap: round(monthlyCompleted - monthlyGoal, 2),
     needed: Math.max(round(monthlyGoal - monthlyCompleted, 2), 0)
   };
@@ -770,13 +772,14 @@ function districtMetricFromRow(r) {
 
 function buildCityViewRow(r, view, auto, coachRows, districtRows) {
   const cityName = text(r["城市"]);
-  const monthlyGoal = num(firstValue(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"]));
-  const monthlyCompleted = num(firstValue(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"]));
+  const monthlyGoal = amountWan(r, ["月度目标_万元", "月度目标 万元", "月度目标", "目标营收_万元"], ["月度目标_元", "月度目标 元", "目标营收_元"]);
+  const monthlyCompleted = amountWan(r, ["月度完成_万元", "月度完成 万元", "月度完成", "实际完成_万元"], ["月度完成_元", "月度完成 元", "实际完成_元"]);
   const monthlyRate = num(firstValue(r, ["月完成率", "月完成率_%", "月度完成率", "完成率_%"]), monthlyGoal ? round((monthlyCompleted / monthlyGoal) * 100, 1) : 0);
-  const weekGoal = num(firstValue(r, ["周目标_万元", "周目标 万元", "周目标"]), monthlyGoal ? round(monthlyGoal / 4, 2) : 0);
-  const weekCompleted = num(firstValue(r, ["周完成_万元", "周完成 万元", "周完成"]));
+  const weekGoal = amountWan(r, ["周目标_万元", "周目标 万元", "周目标"], ["周目标_元", "周目标 元"], monthlyGoal ? round(monthlyGoal / 4, 2) : 0);
+  const weekCompleted = amountWan(r, ["周完成_万元", "周完成 万元", "周完成"], ["周完成_元", "周完成 元"]);
   const weekRate = num(firstValue(r, ["周完成率", "周完成率_%"]), weekGoal ? round((weekCompleted / weekGoal) * 100, 1) : 0);
-  const yesterdayCompleted = num(firstValue(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"]));
+  const yesterdayCompleted = amountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]);
+  const districtSummary = districtMetricFromRow({ ...r, 区域: `${cityName}汇总` });
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -795,6 +798,7 @@ function buildCityViewRow(r, view, auto, coachRows, districtRows) {
     weekCompleted,
     weekRate,
     yesterdayCompleted,
+    districtSummary,
     courseUsersTotal: auto?.users ?? num(r["正课总用户数"]),
     courseUsersExpiring: num(r["到期用户数"]),
     courseUsersExpiringMonth: num(r["本月到期用户数"]),
@@ -1357,6 +1361,14 @@ function num(value, fallback = 0) {
   if (value == null || value === "") return fallback;
   const n = Number(String(value).replace(/,/g, "").replace("%", ""));
   return Number.isFinite(n) ? n : fallback;
+}
+
+function amountWan(row, wanKeys, yuanKeys, fallback = 0) {
+  const wanValue = firstValue(row, wanKeys);
+  if (text(wanValue) !== "") return num(wanValue, fallback);
+  const yuanValue = firstValue(row, yuanKeys);
+  if (text(yuanValue) !== "") return round(num(yuanValue) / 10000, 2);
+  return fallback;
 }
 
 function rateNum(value, fallback = 0) {
