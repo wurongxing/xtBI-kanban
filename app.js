@@ -265,12 +265,22 @@ const OPERATING_DEFAULTS = {
 };
 
 function money(value) {
-  return `${Number(value).toFixed(value >= 10 ? 1 : 2)}万`;
+  return `${formatNumberNoRound(Number(value || 0), 4)}万`;
 }
 
 function cityMoney(value) {
-  const yuan = Math.round(Number(value || 0) * 10000);
-  return `${yuan.toLocaleString("zh-CN")}元`;
+  const yuan = Number(value || 0) * 10000;
+  return `${formatNumberNoRound(yuan, 2)}元`;
+}
+
+function formatNumberNoRound(value, maxDecimals = 2) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  const sign = number < 0 ? "-" : "";
+  const [intPart, decimalPart = ""] = Math.abs(number).toFixed(maxDecimals + 4).split(".");
+  const decimals = decimalPart.slice(0, maxDecimals).replace(/0+$/, "");
+  const integer = Number(intPart).toLocaleString("zh-CN");
+  return decimals ? `${sign}${integer}.${decimals}` : `${sign}${integer}`;
 }
 
 function statusClass(status) {
@@ -1312,8 +1322,8 @@ function transformExcelSheets(sheets, syncMode = "本地Excel上传") {
       label: { month: "月", week: "周", day: "日" }[view],
       mission: {
         time,
-        goal: Math.round(goal * 100) / 100,
-        completed: Math.round(completed * 100) / 100,
+        goal,
+        completed,
         rate,
         status: rate >= time ? "良好" : rate >= time - 10 ? "预警" : "滞后",
         gap: Math.round((rate - time) * 10) / 10
@@ -2235,7 +2245,7 @@ function excelAmountWan(row, wanKeys, yuanKeys, fallback = 0) {
   const wanValue = excelFirst(row, wanKeys);
   if (excelText(wanValue) !== "") return excelNum(wanValue, fallback);
   const yuanValue = excelFirst(row, yuanKeys);
-  if (excelText(yuanValue) !== "") return Math.round((excelNum(yuanValue) / 10000) * 100) / 100;
+  if (excelText(yuanValue) !== "") return excelNum(yuanValue) / 10000;
   return fallback;
 }
 

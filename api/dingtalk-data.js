@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-fuzzy-city-source-fields-v18";
+const API_VERSION = "2026-08-05-no-round-city-summary-v19";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -504,8 +504,8 @@ function transformWorkbook(sheets) {
       label: VIEW_LABELS[view],
       mission: {
         time,
-        goal: round(goal, 2),
-        completed: round(completed, 2),
+        goal,
+        completed,
         rate,
         status: statusByRate(rate, time),
         gap: round(rate - time, 1)
@@ -1377,7 +1377,7 @@ function amountWan(row, wanKeys, yuanKeys, fallback = 0) {
   const wanValue = firstValue(row, wanKeys);
   if (text(wanValue) !== "") return num(wanValue, fallback);
   const yuanValue = firstValue(row, yuanKeys);
-  if (text(yuanValue) !== "") return round(num(yuanValue) / 10000, 2);
+  if (text(yuanValue) !== "") return num(yuanValue) / 10000;
   return fallback;
 }
 
