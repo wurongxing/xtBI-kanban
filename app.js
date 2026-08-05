@@ -129,6 +129,7 @@ const ENTITY_CITY_KEYS = [
   "newSignedStores",
   "coaches",
   "districts",
+  "districtSummary",
   "formulaLogic"
 ];
 let activeView = "month";
@@ -2204,7 +2205,17 @@ function excelFirst(row, keys) {
   for (const key of keys) {
     if (excelText(row[key]) !== "") return row[key];
   }
+  const normalizedEntries = Object.entries(row || {}).map(([key, value]) => [normalizeExcelHeader(key), value]);
+  for (const key of keys) {
+    const target = normalizeExcelHeader(key);
+    const found = normalizedEntries.find(([entryKey, value]) => entryKey === target && excelText(value) !== "");
+    if (found) return found[1];
+  }
   return "";
+}
+
+function normalizeExcelHeader(value) {
+  return excelText(value).replace(/[\s_\-—/%％（）()：:，,。·.]+/g, "").toLowerCase();
 }
 
 function excelFieldIncludes(value, expected) {

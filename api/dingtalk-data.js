@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-city-source-yuan-fields-v17";
+const API_VERSION = "2026-08-05-fuzzy-city-source-fields-v18";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -1158,7 +1158,17 @@ function firstValue(row, keys) {
   for (const key of keys) {
     if (text(row[key]) !== "") return row[key];
   }
+  const normalizedEntries = Object.entries(row || {}).map(([key, value]) => [normalizeHeader(key), value]);
+  for (const key of keys) {
+    const target = normalizeHeader(key);
+    const found = normalizedEntries.find(([entryKey, value]) => entryKey === target && text(value) !== "");
+    if (found) return found[1];
+  }
   return "";
+}
+
+function normalizeHeader(value) {
+  return text(value).replace(/[\s_\-—/%％（）()：:，,。·.]+/g, "").toLowerCase();
 }
 
 function coachNameFromRow(row) {
