@@ -267,6 +267,11 @@ function money(value) {
   return `${Number(value).toFixed(value >= 10 ? 1 : 2)}万`;
 }
 
+function cityMoney(value) {
+  const yuan = Math.round(Number(value || 0) * 10000);
+  return `${yuan.toLocaleString("zh-CN")}元`;
+}
+
 function statusClass(status) {
   if (status === "良好") return "good";
   if (status === "预警") return "warn";
@@ -435,16 +440,76 @@ function renderCity(city, selector) {
   document.querySelector(selector).innerHTML = `
     <h2>${city.name}经营中心</h2>
     <div class="performance-strip monthly-only-strip">
-      ${metric("月度目标", money(monthlyGoal))}
-      ${metric("月度完成", money(monthlyCompleted))}
+      ${metric("月度目标", cityMoney(monthlyGoal))}
+      ${metric("月度完成", cityMoney(monthlyCompleted))}
       ${metric("完成率", `${city.rate}%`, city.rate < 30 ? "warn" : "good")}
-      ${metric("周目标", money(weekGoal))}
-      ${metric("周完成", money(weekCompleted))}
+      ${metric("周目标", cityMoney(weekGoal))}
+      ${metric("周完成", cityMoney(weekCompleted))}
       ${metric("周完成率", `${weeklyRate(city)}%`, weeklyRate(city) < 35 ? "warn" : "good")}
-      ${metric("昨日完成", money(yesterdayCompleted))}
+      ${metric("昨日完成", cityMoney(yesterdayCompleted))}
     </div>
+    ${districtOperatingSummary(city.districtMetrics || [])}
     ${districtOperatingTable(city.districtMetrics || [])}
   `;
+}
+
+function districtOperatingSummary(rows) {
+  if (!rows.length) return "";
+  const summary = {
+    monthTrials: sumRows(rows, "monthTrials"),
+    monthDeals: sumRows(rows, "monthDeals"),
+    yesterdayTrials: sumRows(rows, "yesterdayTrials"),
+    yesterdayDeals: sumRows(rows, "yesterdayDeals"),
+    expiringLessons: sumRows(rows, "expiringLessons"),
+    renewals: sumRows(rows, "renewals"),
+    coachesNewMonth: sumRows(rows, "coachesNewMonth"),
+    coachesNewYesterday: sumRows(rows, "coachesNewYesterday"),
+    storesNewMonth: sumRows(rows, "storesNewMonth"),
+    storesNewYesterday: sumRows(rows, "storesNewYesterday")
+  };
+  const monthConversionRate = percent(summary.monthDeals, summary.monthTrials);
+  const yesterdayConversionRate = percent(summary.yesterdayDeals, summary.yesterdayTrials);
+  const renewalRate = percent(summary.renewals, summary.expiringLessons);
+  return `
+    <div class="district-summary-grid">
+      <section class="district-summary-card trial-summary">
+        <div class="district-summary-title">体验课栏</div>
+        <div class="district-summary-values">
+          ${summaryItem("月度体验课", count(summary.monthTrials))}
+          ${summaryItem("月度转化正课", count(summary.monthDeals))}
+          ${summaryItem("月度转化率", `${monthConversionRate}%`, rateClass(monthConversionRate))}
+          ${summaryItem("昨日体验课", count(summary.yesterdayTrials))}
+          ${summaryItem("昨日转化正课", count(summary.yesterdayDeals))}
+          ${summaryItem("昨日转化率", `${yesterdayConversionRate}%`, rateClass(yesterdayConversionRate))}
+          ${summaryItem("正课到期", count(summary.expiringLessons))}
+          ${summaryItem("续课数", count(summary.renewals))}
+          ${summaryItem("续课率", `${renewalRate}%`, rateClass(renewalRate))}
+        </div>
+      </section>
+      <section class="district-summary-card coach-summary">
+        <div class="district-summary-title">教练栏</div>
+        <div class="district-summary-values two">
+          ${summaryItem("月度新增教练", `${count(summary.coachesNewMonth)}人`)}
+          ${summaryItem("昨日新增教练", `${count(summary.coachesNewYesterday)}人`)}
+        </div>
+      </section>
+      <section class="district-summary-card store-summary">
+        <div class="district-summary-title">门店栏</div>
+        <div class="district-summary-values two">
+          ${summaryItem("月度新增门店", `${count(summary.storesNewMonth)}家`)}
+          ${summaryItem("昨日新增门店", `${count(summary.storesNewYesterday)}家`)}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function summaryItem(label, value, cls = "") {
+  return `<div class="district-summary-item"><span>${label}</span><strong class="${cls}">${value}</strong></div>`;
+}
+
+function sumRows(rows, key) {
+  return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0);
 }
 
 function districtOperatingTable(rows) {

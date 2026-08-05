@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-project-okr-clean-v14";
+const API_VERSION = "2026-08-05-city-district-summary-v16";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [

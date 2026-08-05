@@ -498,6 +498,61 @@ button {
   color: var(--muted);
   background: rgba(0, 0, 0, 0.18);
 }
+.district-summary-grid {
+  display: grid;
+  grid-template-columns: 1.45fr 0.8fr 0.8fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.district-summary-card {
+  min-width: 0;
+  padding: 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(30, 115, 255, 0.26);
+  background: linear-gradient(135deg, rgba(0, 71, 255, 0.12), rgba(1, 10, 28, 0.72));
+}
+.trial-summary {
+  border-color: rgba(52, 231, 228, 0.28);
+}
+.coach-summary {
+  border-color: rgba(255, 225, 0, 0.28);
+}
+.store-summary {
+  border-color: rgba(40, 230, 129, 0.28);
+}
+.district-summary-title {
+  margin-bottom: 9px;
+  color: var(--city-color);
+  font-size: 15px;
+  font-weight: 800;
+}
+.district-summary-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.district-summary-values.two {
+  grid-template-columns: 1fr;
+}
+.district-summary-item {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.district-summary-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.district-summary-item strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+}
 .district-operating {
   margin-top: 16px;
 }
@@ -1438,6 +1493,7 @@ dialog::backdrop { background: rgba(0,0,0,0.62); }
   .project-rank-row { grid-template-columns: 30px 1fr 58px; }
   .project-rank-row em { grid-column: 2 / -1; text-align: left; }
   .performance-strip, .channel-board { grid-template-columns: 1fr; }
+  .district-summary-grid { grid-template-columns: 1fr; }
   .city-district-map, .coach-board { grid-template-columns: 1fr; }
   .coach-table { min-width: 1380px; }
   .okr-cards { grid-template-columns: 1fr; }
