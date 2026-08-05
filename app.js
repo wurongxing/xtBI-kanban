@@ -130,6 +130,15 @@ const ENTITY_CITY_KEYS = [
   "coaches",
   "districts",
   "districtSummary",
+  "monthTrials",
+  "monthDeals",
+  "monthConversionRate",
+  "yesterdayTrials",
+  "yesterdayDeals",
+  "yesterdayConversionRate",
+  "expiringLessons",
+  "renewals",
+  "renewalRate",
   "formulaLogic"
 ];
 let activeView = "month";
@@ -459,14 +468,15 @@ function renderCity(city, selector) {
       ${metric("周完成率", `${weeklyRate(city)}%`, weeklyRate(city) < 35 ? "warn" : "good")}
       ${metric("昨日完成", cityMoney(yesterdayCompleted))}
     </div>
-    ${districtOperatingSummary(city.districtMetrics || [], city.districtSummary)}
+    ${districtOperatingSummary(city.districtMetrics || [], city)}
     ${districtOperatingTable(city.districtMetrics || [])}
   `;
 }
 
-function districtOperatingSummary(rows, citySummary) {
-  if (!rows.length && !citySummary) return "";
-  const summary = rows.length ? {
+function districtOperatingSummary(rows, city) {
+  const citySummary = cityOperatingSummary(city);
+  if (!rows.length && !hasOperatingSummary(citySummary)) return "";
+  const summary = hasOperatingSummary(citySummary) ? citySummary : {
     monthTrials: sumRows(rows, "monthTrials"),
     monthDeals: sumRows(rows, "monthDeals"),
     yesterdayTrials: sumRows(rows, "yesterdayTrials"),
@@ -477,7 +487,7 @@ function districtOperatingSummary(rows, citySummary) {
     coachesNewYesterday: sumRows(rows, "coachesNewYesterday"),
     storesNewMonth: sumRows(rows, "storesNewMonth"),
     storesNewYesterday: sumRows(rows, "storesNewYesterday")
-  } : citySummary;
+  };
   const monthConversionRate = percent(summary.monthDeals, summary.monthTrials);
   const yesterdayConversionRate = percent(summary.yesterdayDeals, summary.yesterdayTrials);
   const renewalRate = percent(summary.renewals, summary.expiringLessons);
@@ -513,6 +523,39 @@ function districtOperatingSummary(rows, citySummary) {
       </section>
     </div>
   `;
+}
+
+function cityOperatingSummary(city = {}) {
+  const source = city.districtSummary || {};
+  return {
+    monthTrials: firstNumber(city.monthTrials, source.monthTrials),
+    monthDeals: firstNumber(city.monthDeals, source.monthDeals),
+    monthConversionRate: firstNumber(city.monthConversionRate, source.monthConversionRate),
+    yesterdayTrials: firstNumber(city.yesterdayTrials, source.yesterdayTrials),
+    yesterdayDeals: firstNumber(city.yesterdayDeals, source.yesterdayDeals),
+    yesterdayConversionRate: firstNumber(city.yesterdayConversionRate, source.yesterdayConversionRate),
+    expiringLessons: firstNumber(city.expiringLessons, source.expiringLessons),
+    renewals: firstNumber(city.renewals, source.renewals),
+    renewalRate: firstNumber(city.renewalRate, source.renewalRate),
+    coachesNewMonth: firstNumber(city.coachesNewMonth, source.coachesNewMonth),
+    coachesNewYesterday: firstNumber(city.coachesNewYesterday, source.coachesNewYesterday),
+    storesNewMonth: firstNumber(city.storesNewMonth, source.storesNewMonth),
+    storesNewYesterday: firstNumber(city.storesNewYesterday, source.storesNewYesterday)
+  };
+}
+
+function hasOperatingSummary(summary = {}) {
+  return [
+    "monthTrials", "monthDeals", "yesterdayTrials", "yesterdayDeals", "expiringLessons",
+    "renewals", "coachesNewMonth", "coachesNewYesterday", "storesNewMonth", "storesNewYesterday"
+  ].some((key) => Number(summary[key] || 0) !== 0);
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== "") return Number(value) || 0;
+  }
+  return 0;
 }
 
 function summaryItem(label, value, cls = "") {
@@ -1497,6 +1540,7 @@ function excelMonthlyCityRow(r, allDistrictRows = []) {
     .filter((row) => normalizeCity(excelText(row["城市"])) === normalizeCity(cityName))
     .map(excelDistrictMetricFromRow)
     .filter((item) => item.name);
+  const districtSummary = excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` });
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -1513,7 +1557,8 @@ function excelMonthlyCityRow(r, allDistrictRows = []) {
     weekRate,
     yesterdayCompleted: excelAmountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]),
     districtMetrics,
-    districtSummary: excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` }),
+    districtSummary,
+    ...operatingFields(districtSummary),
     gap: Math.round((monthlyCompleted - monthlyGoal) * 100) / 100,
     needed: Math.max(Math.round((monthlyGoal - monthlyCompleted) * 100) / 100, 0)
   };
@@ -1537,10 +1582,28 @@ function excelDistrictMetricFromRow(r) {
     expiringLessons,
     renewals,
     renewalRate: excelRateNum(excelFirst(r, ["续课率", "续约率"]), expiringLessons ? percent(renewals, expiringLessons) : 0),
-    coachesNewMonth: excelNum(excelFirst(r, ["月度新增教练数", "本月新增教练数"])),
-    coachesNewYesterday: excelNum(excelFirst(r, ["昨日新增教练数"])),
-    storesNewMonth: excelNum(excelFirst(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
-    storesNewYesterday: excelNum(excelFirst(r, ["昨日新增门店数", "昨日新签门店数"]))
+    coachesNewMonth: excelNum(excelFirst(r, ["月度新增教练数", "月度新增教练", "本月新增教练数", "本月新增教练"])),
+    coachesNewYesterday: excelNum(excelFirst(r, ["昨日新增教练数", "昨日新增教练", "昨天新增教练数", "昨天新增教练"])),
+    storesNewMonth: excelNum(excelFirst(r, ["月度新增入驻门店数", "月度新增入驻门店", "本月新增入驻门店数", "本月新增入驻门店", "本月新签门店数", "本月新签门店"])),
+    storesNewYesterday: excelNum(excelFirst(r, ["昨日新增门店数", "昨日新增门店", "昨日新签门店数", "昨日新签门店", "昨天新增门店数", "昨天新增门店"]))
+  };
+}
+
+function operatingFields(summary = {}) {
+  return {
+    monthTrials: summary.monthTrials,
+    monthDeals: summary.monthDeals,
+    monthConversionRate: summary.monthConversionRate,
+    yesterdayTrials: summary.yesterdayTrials,
+    yesterdayDeals: summary.yesterdayDeals,
+    yesterdayConversionRate: summary.yesterdayConversionRate,
+    expiringLessons: summary.expiringLessons,
+    renewals: summary.renewals,
+    renewalRate: summary.renewalRate,
+    coachesNewMonth: summary.coachesNewMonth,
+    coachesNewYesterday: summary.coachesNewYesterday,
+    storesNewMonth: summary.storesNewMonth,
+    storesNewYesterday: summary.storesNewYesterday
   };
 }
 
@@ -1999,6 +2062,7 @@ function excelCityViewRow(r, view, auto, coachRows, districtRows) {
   const weekCompleted = excelAmountWan(r, ["周完成_万元", "周完成 万元", "周完成"], ["周完成_元", "周完成 元"]);
   const weekRate = excelNum(excelFirst(r, ["周完成率", "周完成率_%"]), weekGoal ? percent(weekCompleted, weekGoal) : 0);
   const yesterdayCompleted = excelAmountWan(r, ["昨日完成_万元", "昨日完成 万元", "昨日完成"], ["昨日完成_元", "昨日完成 元"]);
+  const districtSummary = excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` });
   return {
     key: cityName === "深圳" ? "shenzhen" : "guangzhou",
     name: cityName,
@@ -2017,7 +2081,8 @@ function excelCityViewRow(r, view, auto, coachRows, districtRows) {
     weekCompleted,
     weekRate,
     yesterdayCompleted,
-    districtSummary: excelDistrictMetricFromRow({ ...r, 区域: `${cityName}汇总` }),
+    districtSummary,
+    ...operatingFields(districtSummary),
     courseUsersTotal: auto?.users ?? excelNum(r["正课总用户数"]),
     courseUsersExpiring: excelNum(r["到期用户数"]),
     courseUsersExpiringMonth: excelNum(r["本月到期用户数"]),

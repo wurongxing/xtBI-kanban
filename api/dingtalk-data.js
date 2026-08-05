@@ -2,7 +2,7 @@
 
 const https = require("https");
 
-const API_VERSION = "2026-08-05-no-round-city-summary-v19";
+const API_VERSION = "2026-08-05-city-cell-direct-map-v20";
 const VIEW_LABELS = { month: "月", week: "周", day: "日" };
 const CITY_COLORS = { 深圳: "#28e681", 广州: "#1aa7ff" };
 const DEFAULT_REQUIRED_SHEETS = [
@@ -740,6 +740,7 @@ function buildMonthlyCityRow(r, allDistrictRows = []) {
     yesterdayCompleted,
     districtMetrics,
     districtSummary,
+    ...operatingFields(districtSummary),
     gap: round(monthlyCompleted - monthlyGoal, 2),
     needed: Math.max(round(monthlyGoal - monthlyCompleted, 2), 0)
   };
@@ -763,10 +764,28 @@ function districtMetricFromRow(r) {
     expiringLessons,
     renewals,
     renewalRate: rateNum(firstValue(r, ["续课率", "续约率"]), expiringLessons ? round((renewals / expiringLessons) * 100, 1) : 0),
-    coachesNewMonth: num(firstValue(r, ["月度新增教练数", "本月新增教练数"])),
-    coachesNewYesterday: num(firstValue(r, ["昨日新增教练数"])),
-    storesNewMonth: num(firstValue(r, ["月度新增入驻门店数", "本月新增入驻门店数", "本月新签门店数"])),
-    storesNewYesterday: num(firstValue(r, ["昨日新增门店数", "昨日新签门店数"]))
+    coachesNewMonth: num(firstValue(r, ["月度新增教练数", "月度新增教练", "本月新增教练数", "本月新增教练"])),
+    coachesNewYesterday: num(firstValue(r, ["昨日新增教练数", "昨日新增教练", "昨天新增教练数", "昨天新增教练"])),
+    storesNewMonth: num(firstValue(r, ["月度新增入驻门店数", "月度新增入驻门店", "本月新增入驻门店数", "本月新增入驻门店", "本月新签门店数", "本月新签门店"])),
+    storesNewYesterday: num(firstValue(r, ["昨日新增门店数", "昨日新增门店", "昨日新签门店数", "昨日新签门店", "昨天新增门店数", "昨天新增门店"]))
+  };
+}
+
+function operatingFields(summary = {}) {
+  return {
+    monthTrials: summary.monthTrials,
+    monthDeals: summary.monthDeals,
+    monthConversionRate: summary.monthConversionRate,
+    yesterdayTrials: summary.yesterdayTrials,
+    yesterdayDeals: summary.yesterdayDeals,
+    yesterdayConversionRate: summary.yesterdayConversionRate,
+    expiringLessons: summary.expiringLessons,
+    renewals: summary.renewals,
+    renewalRate: summary.renewalRate,
+    coachesNewMonth: summary.coachesNewMonth,
+    coachesNewYesterday: summary.coachesNewYesterday,
+    storesNewMonth: summary.storesNewMonth,
+    storesNewYesterday: summary.storesNewYesterday
   };
 }
 
@@ -799,6 +818,7 @@ function buildCityViewRow(r, view, auto, coachRows, districtRows) {
     weekRate,
     yesterdayCompleted,
     districtSummary,
+    ...operatingFields(districtSummary),
     courseUsersTotal: auto?.users ?? num(r["正课总用户数"]),
     courseUsersExpiring: num(r["到期用户数"]),
     courseUsersExpiringMonth: num(r["本月到期用户数"]),
