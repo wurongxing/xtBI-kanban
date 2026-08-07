@@ -572,6 +572,35 @@ button {
   font-size: 12px;
   text-align: right;
 }
+.module-toggle {
+  appearance: none;
+  border: 1px solid rgba(52, 231, 228, 0.32);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--cyan);
+  background: rgba(0, 71, 255, 0.16);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.module-toggle:hover {
+  border-color: rgba(255, 225, 0, 0.5);
+  color: var(--yellow);
+}
+.module-placeholder {
+  margin: 12px 16px 16px;
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  border: 1px dashed rgba(52, 231, 228, 0.26);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(1, 10, 28, 0.46);
+}
+.district-operating .module-placeholder {
+  margin: 10px 0 0;
+}
 .district-table-wrap {
   max-height: 360px;
   overflow-y: auto;
@@ -1430,13 +1459,20 @@ button {
 }
 .dock-menu button:hover { background: rgba(255,255,255,0.08); }
 
-body.exporting .data-dock { display: none; }
+body.exporting .data-dock,
+body.exporting .module-toggle,
+body.exporting .module-placeholder,
+body.exporting .module-hidden { display: none !important; }
 body.exporting {
   width: max-content;
   min-width: 1440px;
   overflow: visible;
 }
 body.exporting .coach-table-wrap {
+  overflow: visible;
+}
+body.exporting .district-table-wrap {
+  max-height: none;
   overflow: visible;
 }
 body.exporting .cockpit {

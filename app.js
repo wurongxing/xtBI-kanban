@@ -109,6 +109,12 @@ const fallbackData = {
 
 const AUTO_SYNC_INTERVAL_MS = 30000;
 const REMOTE_DATA_CACHE_KEY = "xiaotieLastGoodDingTalkData";
+const MODULE_VISIBILITY_KEY = "xiaotieCockpitModuleVisibility";
+const DEFAULT_MODULE_VISIBILITY = {
+  districtOperating: true,
+  hqFunnel: true,
+  hqMap: true
+};
 const ENTITY_CITY_KEYS = [
   "coachesTotal",
   "coachesNew",
@@ -144,6 +150,7 @@ const ENTITY_CITY_KEYS = [
 let activeView = "month";
 let cockpitData = fallbackData;
 let localEntitySnapshot = null;
+let moduleVisibility = loadModuleVisibility();
 const coachTableState = {};
 
 const els = {
@@ -357,19 +364,19 @@ function formulaLogicItems(cities) {
 function renderHeadquartersOkr(view) {
   els.cityGrid.className = "city-grid hq-grid";
   els.cityGrid.innerHTML = `
-    <article class="panel hq-funnel-panel">
+    <article class="panel hq-funnel-panel ${moduleVisibility.hqFunnel ? "" : "module-hidden"}">
       <div class="panel-head">
         <h2>流量到转化漏斗</h2>
-        <span>第5张表</span>
+        ${moduleToggleButton("hqFunnel", "流量到转化漏斗")}
       </div>
-      ${conversionFunnel()}
+      ${moduleVisibility.hqFunnel ? conversionFunnel() : hiddenModulePlaceholder("流量到转化漏斗", "hqFunnel")}
     </article>
-    <article class="panel china-map-panel">
+    <article class="panel china-map-panel ${moduleVisibility.hqMap ? "" : "module-hidden"}">
       <div class="panel-head">
         <h2>中国城市开拓图</h2>
-        <span>第6张表</span>
+        ${moduleToggleButton("hqMap", "中国城市开拓图")}
       </div>
-      ${chinaExpansionMap()}
+      ${moduleVisibility.hqMap ? chinaExpansionMap() : hiddenModulePlaceholder("中国城市开拓图", "hqMap")}
     </article>
   `;
 
@@ -382,6 +389,34 @@ function renderHeadquartersOkr(view) {
       </div>
       ${peopleOkrColumns(cockpitData.people || [])}
     </article>
+  `;
+}
+
+function loadModuleVisibility() {
+  try {
+    return { ...DEFAULT_MODULE_VISIBILITY, ...JSON.parse(localStorage.getItem(MODULE_VISIBILITY_KEY) || "{}") };
+  } catch (error) {
+    return { ...DEFAULT_MODULE_VISIBILITY };
+  }
+}
+
+function setModuleVisibility(key, visible) {
+  moduleVisibility = { ...moduleVisibility, [key]: visible };
+  localStorage.setItem(MODULE_VISIBILITY_KEY, JSON.stringify(moduleVisibility));
+  render();
+}
+
+function moduleToggleButton(key, label) {
+  const visible = moduleVisibility[key] !== false;
+  return `<button class="module-toggle" data-module-toggle="${key}" aria-label="${visible ? "隐藏" : "显示"}${label}">${visible ? "隐藏" : "显示"}</button>`;
+}
+
+function hiddenModulePlaceholder(label, key) {
+  return `
+    <div class="module-placeholder">
+      <span>${label}已隐藏</span>
+      <button class="module-toggle" data-module-toggle="${key}">显示</button>
+    </div>
   `;
 }
 
@@ -567,14 +602,34 @@ function sumRows(rows, key) {
 }
 
 function districtOperatingTable(rows) {
+  if (moduleVisibility.districtOperating === false) {
+    return `
+      <div class="district-operating module-hidden">
+        <div class="district-operating-head">
+          <strong>各区月度经营数据</strong>
+          ${moduleToggleButton("districtOperating", "各区月度经营数据")}
+        </div>
+        ${hiddenModulePlaceholder("各区月度经营数据", "districtOperating")}
+      </div>
+    `;
+  }
   if (!rows.length) {
-    return `<div class="district-empty">等待经营数据表补充各区月度经营数据</div>`;
+    return `
+      <div class="district-operating">
+        <div class="district-operating-head">
+          <strong>各区月度经营数据</strong>
+          ${moduleToggleButton("districtOperating", "各区月度经营数据")}
+        </div>
+        <div class="district-empty">等待经营数据表补充各区月度经营数据</div>
+      </div>
+    `;
   }
   return `
     <div class="district-operating">
       <div class="district-operating-head">
         <strong>各区月度经营数据</strong>
         <span>体验课 / 正课续课 / 教练门店新增</span>
+        ${moduleToggleButton("districtOperating", "各区月度经营数据")}
       </div>
       <div class="district-table-wrap">
         <table class="district-table">
@@ -1239,23 +1294,20 @@ async function captureCurrentPageCanvas() {
   document.body.classList.add("exporting");
   window.scrollTo(0, 0);
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const target = document.querySelector(".cockpit") || document.body;
+  const rect = target.getBoundingClientRect();
   const width = Math.ceil(Math.max(
-    document.body.scrollWidth,
-    document.body.offsetWidth,
-    document.documentElement.clientWidth,
-    document.documentElement.scrollWidth,
-    document.documentElement.offsetWidth,
+    target.scrollWidth,
+    target.offsetWidth,
+    rect.width,
     window.innerWidth
   ));
   const height = Math.ceil(Math.max(
-    document.body.scrollHeight,
-    document.body.offsetHeight,
-    document.documentElement.clientHeight,
-    document.documentElement.scrollHeight,
-    document.documentElement.offsetHeight,
-    window.innerHeight
+    target.scrollHeight,
+    target.offsetHeight,
+    rect.height
   ));
-  return html2canvas(document.body, {
+  return html2canvas(target, {
     backgroundColor: "#020814",
     scale: Math.min(window.devicePixelRatio || 1, 2),
     useCORS: true,
@@ -1264,7 +1316,11 @@ async function captureCurrentPageCanvas() {
     windowWidth: width,
     windowHeight: height,
     scrollX: 0,
-    scrollY: 0
+    scrollY: 0,
+    onclone: (doc) => {
+      doc.body.classList.add("exporting");
+      doc.querySelectorAll(".module-hidden").forEach((node) => node.remove());
+    }
   });
 }
 
@@ -2605,6 +2661,13 @@ document.querySelectorAll("[data-view]").forEach(button => {
     document.querySelectorAll("[data-view]").forEach(item => item.classList.toggle("active", item === button));
     render();
   });
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-module-toggle]");
+  if (!button) return;
+  const key = button.dataset.moduleToggle;
+  setModuleVisibility(key, moduleVisibility[key] === false);
 });
 
 document.querySelector("#dockToggle").addEventListener("click", () => els.dockMenu.classList.toggle("open"));
